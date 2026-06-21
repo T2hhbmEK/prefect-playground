@@ -43,6 +43,22 @@ Working notes on how to teach this user. Update as preferences surface.
   box later. Goal: saturate CPU without oversubscribing. Grounds lessons from 0011
   on. (Candidate to fold into `MISSION.md` as the named scenario — confirm first.)
 
+## Records ↔ lessons (why the numbers diverge)
+
+`learning-records/` capture **lessons _and_ decisions** (ADR-style), so they are
+**not** 1:1 with `lessons/`. One record is a decision, not a lesson, which offsets
+every later record by +1. Each lesson-derived record's title names its lesson
+(`(lesson 000X)`); the only records without a lesson are `0001-starting-point` (the
+baseline) and `0008-mission-expanded-scale` (the 2026-06-21 scope change).
+
+- `0001`–`0007` ↔ **L1–L7** (aligned)
+- `0008-mission-expanded-scale` ↔ **—** (decision record, no lesson — the +1 starts here)
+- `0009` / `0010` / `0011` / `0012` ↔ **L8** / **L9** / **L10** / **L11**
+
+Don't renumber to "align" them: records cross-link by slug via wikilinks
+(`[[0008-mission-expanded-scale]]` alone is referenced by 0009, 0010, and 0012), so
+renumbering would break the graph.
+
 ## Course arc (tentative — toward the mission)
 
 1. **See your flow run** — local server + UI + run states. ← done (lesson 0001)
