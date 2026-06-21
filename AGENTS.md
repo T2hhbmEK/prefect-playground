@@ -26,7 +26,7 @@ invoke with `/teach`). Learning state lives in the files below — keep them in 
 you add or change a lesson (the `*-FORMAT.md` files beside the skill define each doc's format):
 
 - **`MISSION.md`** — *why* the user is learning; grounds every lesson.
-- **`NOTES.md`** — teaching preferences + the running course arc (L1…L14). **Read this
+- **`NOTES.md`** — teaching preferences + the running course arc (L1…L15). **Read this
   first** to see where the learner is and what comes next.
 - **`RESOURCES.md`** — curated, trust-rated external sources; lessons cite these.
 - **`lessons/NNNN-<slug>.html`** — the primary unit: one self-contained, beautiful HTML
@@ -40,8 +40,9 @@ you add or change a lesson (the `*-FORMAT.md` files beside the skill define each
 - **`learning-records/NNNN-<slug>.md`** — ADR-style records of what was learned/decided.
   **Do not map records 1:1 to lessons, and do not renumber them:** records cross-link by
   slug via `[[wikilinks]]`, and they include decision-only records with no lesson
-  (`0001-starting-point`, `0008-mission-expanded-scale`) that offset later records by +1
-  (record `000X` ↔ lesson `L(X-1)` from `0009`/L8 onward). `NOTES.md` documents the mapping.
+  (`0001-starting-point`, `0008-mission-expanded-scale`, `0017-async-native-reorg`).
+  Record and lesson numbers don't track linearly — the async-native reorg crossed records
+  `0015`/`0016` onto lessons L15/L14 — so `NOTES.md` holds the exact record↔lesson mapping.
 
 `handoff` (`.claude/skills/handoff/`) is a second installed skill. Skills are vendored
 from `mattpocock/skills` and pinned in `skills-lock.json`; the `teach` skill is mirrored

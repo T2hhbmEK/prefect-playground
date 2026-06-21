@@ -50,10 +50,14 @@ Expanded arc (in progress):
 - **Route work by type, fan out across the fleet**: separate `extract` (I/O) and
   `encode` (CPU) pools/queues, a worker per type per box, and dispatch encodes as
   independent runs with `run_deployment`. ✓ L12–L13.
+- **Make the coordinator async-native**: one `async def` flow — `arun_deployment` to
+  fire each encode and `await wait_for_flow_run` + `asyncio.gather` to dispatch and
+  gather concurrently — replacing the hand-rolled sync poll loop (`wait_for_flow_run`
+  is async-only on `3.7.5.dev4`). ✓ L14.
 - **Run the whole thing**: stand the fan-out fleet up on the Docker stack and execute
-  it — two pools, two workers, per-machine GCL, fan-out + gather coordinator
-  (`10_fleet.py`). Watched the GCL gate 6 encodes to 2-at-a-time, survive a partial
-  failure, and reuse runs on an idempotent rerun. ✓ L14. (next: the async coordinator.)
+  the async-native `10_fleet.py` — two pools, two workers, per-machine GCL, fan-out +
+  gather coordinator. Watched the GCL gate 6 encodes to 2-at-a-time, survive a partial
+  failure, and reuse runs on an idempotent rerun. ✓ L15.
 
 ## Constraints
 
