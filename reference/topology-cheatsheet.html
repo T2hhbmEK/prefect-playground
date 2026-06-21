@@ -87,14 +87,14 @@ for fr in finished:
     <tr><td>Safe coordinator retry</td><td><code>idempotency_key</code> from <strong>stable</strong> inputs (<code>archive:segment</code>) — a rerun reuses finished runs, never double-encodes. Random keys defeat it.</td></tr>
   </table>
 
-  <h2>Async coordinator <span class="cite">L15</span></h2>
+  <h2>Async coordinator <span class="cite">L14</span></h2>
   <pre><code>import asyncio
 from prefect.client.orchestration import get_client
 from prefect.deployments import arun_deployment
 from prefect.flow_runs import wait_for_flow_run
 
 @flow
-async def process_archive_async(archive: str):
+async def process_archive(archive: str):
     runs = await asyncio.gather(*(                          # phase 1: fire all, concurrently
         arun_deployment("encode-segment/encode",
                         parameters={"segment": s}, timeout=0,
@@ -110,7 +110,7 @@ async def process_archive_async(archive: str):
     for fr in finished:
         res = await fr.state.aresult(raise_on_failure=False) # async result: aresult, NOT result.aio</code></pre>
   <table>
-    <tr><th>Sync (L14)</th><th>Async (L15)</th></tr>
+    <tr><th>Naive sync (breaks here)</th><th>Async (L14)</th></tr>
     <tr><td><code>run_deployment(...)</code></td><td><code>await arun_deployment(...)</code> (or <code>run_deployment.aio(...)</code>)</td></tr>
     <tr><td>hand-rolled <code>get_client(sync_client=True)</code> poll loop</td><td><code>await wait_for_flow_run(id)</code> — the documented gather API</td></tr>
     <tr><td><code>fr.state.result(...)</code></td><td><code>await fr.state.aresult(...)</code> (<code>.result.aio</code> drops <code>self</code> ⚠)</td></tr>
@@ -129,8 +129,8 @@ async def process_archive_async(archive: str):
   <div class="note">
     <span class="label">Things that bite</span>
     <ul style="margin:0.4rem 0 0">
-      <li><strong><code>wait_for_flow_run</code> is async-only</strong> (verified, <code>3.7.5.dev4</code>) → in a <em>sync</em> coordinator it returns a coroutine. Either make the flow <code>async</code> (<code>await wait_for_flow_run</code>), or poll state with <code>get_client(sync_client=True).read_flow_run(id)</code> (L14).</li>
-      <li><strong><code>wait_for_flow_run</code> hands back a racing state</strong> (L15) → it's event-driven (<code>poll_interval</code> ignored): returns on the first final-state <em>event</em>, then re-reads, and that re-read can lag the commit — a finished run can come back <code>RUNNING</code> (seen ~1 run in 5), so it looks "failed". <strong>Re-read the run's state before classifying</strong>; one read settles it.</li>
+      <li><strong><code>wait_for_flow_run</code> is async-only</strong> (verified, <code>3.7.5.dev4</code>) → in a <em>sync</em> coordinator it returns a coroutine. Make the flow <code>async</code> and <code>await wait_for_flow_run</code> (L14); the sync fallback is the <code>get_client(sync_client=True).read_flow_run(id)</code> poll loop shown above.</li>
+      <li><strong><code>wait_for_flow_run</code> hands back a racing state</strong> (L14) → it's event-driven (<code>poll_interval</code> ignored): returns on the first final-state <em>event</em>, then re-reads, and that re-read can lag the commit — a finished run can come back <code>RUNNING</code> (seen ~1 run in 5), so it looks "failed". <strong>Re-read the run's state before classifying</strong>; one read settles it.</li>
       <li><strong><code>fr.state.result.aio(...)</code></strong> → the bound-method <code>.aio</code> drops <code>self</code> in <code>3.7.5.dev4</code>. Use <code>await fr.state.aresult(...)</code>.</li>
       <li><strong>Using <code>.map</code> for fleet scale</strong> → it stays in one process on one machine. Use <code>run_deployment</code> per unit.</li>
       <li><strong>Expecting <code>as_subflow</code> to co-locate</strong> → it's lineage only; execution is on the pool.</li>
@@ -145,7 +145,7 @@ async def process_archive_async(archive: str):
   </div>
 
   <div class="lesson-nav">
-    <span><a href="../lessons/0012-fan-out-the-fleet.html">← L12: Fan out</a> · <a href="../lessons/0013-gather-the-fan-out.html">L13: Gather</a> · <a href="../lessons/0014-run-the-fleet.html">L14: Run it</a> · <a href="../lessons/0015-the-async-coordinator.html">L15: Async →</a></span>
+    <span><a href="../lessons/0012-fan-out-the-fleet.html">← L12: Fan out</a> · <a href="../lessons/0013-gather-the-fan-out.html">L13: Gather</a> · <a href="../lessons/0014-the-async-coordinator.html">L14: Async</a> · <a href="../lessons/0015-run-the-fleet.html">L15: Run it →</a></span>
     <span><a href="concurrency-cheatsheet.html">Concurrency cheatsheet</a> · <a href="work-pools-cheatsheet.html">Work pools</a> · <a href="glossary.html">Glossary</a></span>
   </div>
 </main>

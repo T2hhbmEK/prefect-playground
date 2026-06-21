@@ -1,17 +1,19 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lesson 14 — Run the fleet</title>
+<title>Lesson 15 — Run the fleet</title>
 <link rel="stylesheet" href="../assets/lesson.css" />
 
 <header>
-    <p class="kicker">Lesson 14 · Putting it together</p>
+    <p class="kicker">Lesson 15 · Putting it together</p>
     <h1>Run the fleet</h1>
     <p class="subtitle">
-        Three lessons of theory —
+        Four lessons of theory —
         <a href="0011-count-runs-not-cores.html">L11</a> per-worker GCL,
         <a href="0012-fan-out-the-fleet.html">L12</a> split pools + fan-out,
-        <a href="0013-gather-the-fan-out.html">L13</a> gather — and nothing actually
-        run. Time to stop reading and execute the whole thing on your Docker stack.
+        <a href="0013-gather-the-fan-out.html">L13</a> gather,
+        <a href="0014-the-async-coordinator.html">L14</a> the async coordinator — and
+        nothing actually run. Time to stop reading and execute the whole thing on your
+        Docker stack.
     </p>
 </header>
 
@@ -21,17 +23,18 @@
         handful of commands stand up the entire fan-out fleet — two pools, two
         workers, a per-machine GCL — and you watch the encodes gate themselves to two
         at a time even though the coordinator fired all six at once.</strong> This is
-        L11–L13 made real, on one host standing in for the VM fleet.
+        L11–L14 made real, on one host standing in for the VM fleet.
     </p>
 
     <h2>0 · What you're running</h2>
     <p>
         <a href="../10_fleet.py">10_fleet.py</a> defines two flows and deploys both —
-        no new concepts, just the L12/L13 pattern wired end to end:
+        no new concepts, just the L12/L13 pattern wired end to end with the
+        <a href="0014-the-async-coordinator.html">L14</a> async coordinator:
     </p>
     <table>
         <tr><th>Deployment</th><th>Pool</th><th>Does</th></tr>
-        <tr><td><code>process-archive/extract</code></td><td><code>extract</code></td><td>Unpacks (light I/O), then fans out one <code>run_deployment</code> per segment and gathers them.</td></tr>
+        <tr><td><code>process-archive/extract</code></td><td><code>extract</code></td><td>The async coordinator: unpacks (light I/O), then fans out one <code>arun_deployment</code> per segment with <code>asyncio.gather</code> and gathers them.</td></tr>
         <tr><td><code>encode-segment/encode</code></td><td><code>encode</code></td><td>The CPU job: gates the (simulated) encode behind the per-worker GCL, persists its output path.</td></tr>
     </table>
 
@@ -78,9 +81,10 @@ process-archive — 6 ok, 0 failed: []                        # coordinator gath
         <span class="label">This is the whole arc in one run</span>
         All six fired instantly (<code>timeout=0</code>, L12). The GCL admitted
         <code>⌊4 / 2⌋ = 2</code> (L11) — segments 3 &amp; 5 wait until 4 &amp; 1
-        finish. The coordinator polled each to done and returned the summary (L13).
-        Bump the GCL to <code>--limit 8</code> (<code>gcl update</code>) and rerun: four
-        at a time. Same flow code — only the number changed.
+        finish. The async coordinator awaited them all
+        (<code>asyncio.gather</code> + <code>wait_for_flow_run</code>, L14) and returned
+        the summary. Bump the GCL to <code>--limit 8</code> (<code>gcl update</code>) and
+        rerun: four at a time. Same flow code — only the number changed.
     </div>
 
     <h2>3 · When one segment dies</h2>
@@ -93,9 +97,9 @@ process-archive — 6 ok, 0 failed: []                        # coordinator gath
 uv run prefect deployment run process-archive/extract -p archive=clip02.tar
 # →  process-archive — 5 ok, 1 failed: [3]</code></pre>
     <p>
-        That's <code>state.result(raise_on_failure=False)</code> from L13: read the bad
-        run's outcome as a value instead of re-raising, keep the five good results,
-        record the one failure to re-dispatch.
+        That's the L13 partial-failure pattern (<code>await fr.state.aresult(raise_on_failure=False)</code>
+        in the async coordinator): read the bad run's outcome as a value instead of
+        re-raising, keep the five good results, record the one failure to re-dispatch.
     </p>
 
     <h2>4 · Rerun is free</h2>
@@ -114,22 +118,20 @@ uv run prefect deployment run process-archive/extract -p archive=clip02.tar
         this — every retry would look new and re-encode everything (L13).
     </p>
 
-    <h2>5 · The catch running it exposed</h2>
+    <h2>5 · It gathered the async way (L14)</h2>
     <div class="why">
-        <span class="label">L13's <code>wait_for_flow_run</code> doesn't work in a <em>sync</em> flow here</span>
-        L13 wrote <code>wait_for_flow_run(r.id)</code> in a plain (sync) coordinator.
-        Run it and you get <code>'coroutine' object has no attribute 'state'</code> — in
-        our <code>3.7.5.dev4</code> build that function is <strong>async-only</strong>.
-        So <code>10_fleet.py</code>'s sync coordinator gathers by polling run state with
-        the <strong>sync client</strong> instead:
-        <pre style="margin:0.6rem 0 0"><code>from prefect.client.orchestration import get_client
-
-with get_client(sync_client=True) as client:
-    fr = client.read_flow_run(run_id)      # poll until fr.state.is_final()</code></pre>
-        Same idea — fire all, then wait on the batch. Making the coordinator
-        <code>async</code> so <code>await wait_for_flow_run(...)</code> works (and the
-        waits overlap with <code>asyncio.gather</code>) is the <strong>next</strong>
-        lesson. This is what "actually run it" buys you: the API reality, not the slide.
+        <span class="label">Why <code>6 ok</code> came back cleanly</span>
+        The <code>process-archive</code> coordinator is an <code>async def</code> flow
+        (<a href="0014-the-async-coordinator.html">L14</a>): it fired every encode with
+        <code>arun_deployment(timeout=0)</code>, then gathered with
+        <code>await asyncio.gather(*(wait_for_flow_run(id) …))</code> — the documented
+        API, which only works under <code>await</code> in this build. One subtlety it
+        bakes in: <code>wait_for_flow_run</code> is event-driven and its returned state
+        can <strong>race the commit</strong> (a finished run can momentarily read back
+        <code>RUNNING</code>, ~1 run in 5), so the coordinator re-reads each run's
+        authoritative state before classifying. Without that re-read, the very run you
+        just did would sometimes report a spurious <code>1 failed</code> — exactly what
+        "actually run it" surfaces. Full story in L14.
     </div>
 
     <h2>6 · Watch the whole run</h2>
@@ -169,7 +171,7 @@ with get_client(sync_client=True) as client:
         <div class="prompt">
             You fired six encodes at once (<code>timeout=0</code>) but the worker only
             ever runs two. What's enforcing the two — and what one number would you
-            change on a 16-core box? <span class="tag">L11·L14</span>
+            change on a 16-core box? <span class="tag">L11·L15</span>
         </div>
         <button class="reveal">Reveal</button>
         <div class="answer">
@@ -197,11 +199,11 @@ with get_client(sync_client=True) as client:
     <div class="quiz" id="q2">
         <div class="q">
             The coordinator fires six encodes with <code>timeout=0</code>, then needs
-            their outcomes. In <code>10_fleet.py</code> (a sync flow) it…
+            their outcomes. In <code>10_fleet.py</code> (an async flow) it…
         </div>
         <div class="opts">
-            <button class="opt" data-correct="true">Polls each run's state with the sync client until final</button>
-            <button class="opt" data-correct="false">Calls wait_for_flow_run, which works fine in sync flows</button>
+            <button class="opt" data-correct="true">Awaits them all with asyncio.gather over wait_for_flow_run</button>
+            <button class="opt" data-correct="false">Blocks on each wait_for_flow_run call one segment at a time</button>
             <button class="opt" data-correct="false">Re-reads them with run_deployment a second time</button>
         </div>
         <div class="fb"></div>
@@ -228,21 +230,22 @@ with get_client(sync_client=True) as client:
             deployments</a> and
             <a href="https://docs.prefect.io/v3/concepts/workers">Workers &amp; work pools</a>.
             Everything here was run end-to-end against our <code>3.7.5.dev4</code>
-            build — including the <code>wait_for_flow_run</code> sync/async catch.
+            build — including the event-driven <code>wait_for_flow_run</code> race
+            (<a href="0014-the-async-coordinator.html">L14</a>).
         </p>
     </div>
 
     <div class="ask">
-        <strong>I'm your teacher — ask me anything.</strong> Want the <em>async</em>
-        coordinator next (<code>arun_deployment</code> + <code>await wait_for_flow_run</code>
-        + <code>asyncio.gather</code>, so the gather works the documented way and the
-        waits overlap), a bounded re-dispatch loop that retries only the failed segments,
-        or routing a GPU box as its own pool/queue? Ask in the chat.
+        <strong>I'm your teacher — ask me anything.</strong> The fleet runs end-to-end,
+        async-native. Next candidates: a <em>bounded re-dispatch loop</em> that retries
+        only the failed segments N times (fresh <code>idempotency_key</code> per attempt),
+        routing a <em>GPU box</em> as its own pool/queue (<code>work_queue_name</code>),
+        or a cold review of L11–L15 (spacing is overdue). Ask in the chat.
     </div>
 
     <div class="lesson-nav">
-        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
-        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): the async coordinator, a re-dispatch loop, or a GPU pool ⏭</span>
+        <span><a href="0014-the-async-coordinator.html">← L14: The async coordinator</a> · <a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): a re-dispatch loop, a GPU pool, or a review ⏭</span>
     </div>
 </main>
 

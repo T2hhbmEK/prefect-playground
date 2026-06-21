@@ -1,4 +1,11 @@
-# The async coordinator: arun_deployment + await wait_for_flow_run + asyncio.gather (lesson 0015)
+# The async coordinator: arun_deployment + await wait_for_flow_run + asyncio.gather (lesson 0014)
+
+> **Note (reorg, see [[0017-async-native-reorg]]):** lessons 14↔15 were later swapped so
+> the end-to-end demo is async-native. This record's session is now **lesson 0014** (the
+> async coordinator, taught before running the fleet). The async coordinator described
+> here was merged into `10_fleet.py` (the canonical end-to-end script) and the separate
+> `11_fleet_async.py` was deleted. Findings below all still hold — but the narrative uses
+> the **original** numbering (it was lesson 0015 when written).
 
 Fifteenth lesson, seventh of the expanded scale arc ([[0008-mission-expanded-scale]]),
 and the direct close of the loose end [[0015-run-the-fleet]] exposed: L14 *proved*

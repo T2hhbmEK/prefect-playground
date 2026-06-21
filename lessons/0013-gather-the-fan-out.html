@@ -60,7 +60,7 @@ def _settle(fr, done):                          # final? stash it and drop from 
     if fr.state.is_final():
         done[fr.id] = fr
     return fr.state.is_final()</code></pre>
-    <p class="note" style="margin:0.6rem 0"><span class="label">Why poll, not <code>wait_for_flow_run</code>?</span> The obvious helper, <code>wait_for_flow_run</code>, is <strong>async-only</strong> in our <code>3.7.5.dev4</code> build — calling it from this <em>sync</em> flow returns a coroutine (<code>'coroutine' object has no attribute 'state'</code>). So a sync coordinator polls state with <code>get_client(sync_client=True)</code>. Make the flow <code>async</code> and you'd <code>await wait_for_flow_run(r.id)</code> instead — that's the next lesson. (Verified in <a href="0014-run-the-fleet.html">L14</a>.)</p>
+    <p class="note" style="margin:0.6rem 0"><span class="label">Why poll, not <code>wait_for_flow_run</code>?</span> The obvious helper, <code>wait_for_flow_run</code>, is <strong>async-only</strong> in our <code>3.7.5.dev4</code> build — calling it from this <em>sync</em> flow returns a coroutine (<code>'coroutine' object has no attribute 'state'</code>). So a sync coordinator polls state with <code>get_client(sync_client=True)</code>. Make the flow <code>async</code> and you'd <code>await wait_for_flow_run(r.id)</code> instead — that's the next lesson, <a href="0014-the-async-coordinator.html">L14</a>.</p>
     <div class="why">
         <span class="label">Why not just drop <code>timeout=0</code>?</span>
         Letting <code>run_deployment</code> block (its default) waits on each encode
@@ -210,22 +210,25 @@ def _settle(fr, done):                          # final? stash it and drop from 
             deployments</a> (timeout, <code>idempotency_key</code>) and the
             <a href="https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs">flow-runs
             API</a> (<code>wait_for_flow_run</code> — async-only here) and reading
-            <code>state.result()</code>. The sync poll above was verified for our
-            <code>3.7.5.dev4</code> build in <a href="0014-run-the-fleet.html">L14</a>.
+            <code>state.result()</code>. Making the coordinator <code>async</code> so
+            <code>await wait_for_flow_run</code> works is
+            <a href="0014-the-async-coordinator.html">L14</a>; the whole fleet runs
+            end-to-end in <a href="0015-run-the-fleet.html">L15</a>.
         </p>
     </div>
 
     <div class="ask">
-        <strong>I'm your teacher — ask me anything.</strong> Want the <em>async</em>
-        gather (<code>arun_deployment</code> + <code>asyncio.gather</code>, so the waits
-        truly overlap), a re-dispatch loop that retries only failed segments a bounded
-        number of times, or finally a <em>runnable</em> end-to-end demo (extract +
-        encode pools, two workers, this coordinator) on your Docker stack? Ask in the chat.
+        <strong>I'm your teacher — ask me anything.</strong> The <em>async</em> gather
+        (<code>arun_deployment</code> + <code>asyncio.gather</code>) is
+        <a href="0014-the-async-coordinator.html">L14</a>, and the <em>runnable</em>
+        end-to-end demo on your Docker stack is
+        <a href="0015-run-the-fleet.html">L15</a>. Still open to ask: a re-dispatch loop
+        that retries only failed segments a bounded number of times. Ask in the chat.
     </div>
 
     <div class="lesson-nav">
-        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
-        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): async gather, a re-dispatch loop, or the end-to-end demo ⏭</span>
+        <span><a href="0012-fan-out-the-fleet.html">← L12: Fan out</a> · <a href="0014-the-async-coordinator.html">L14: The async coordinator →</a></span>
+        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet</a> · <a href="../reference/glossary.html">Glossary</a></span>
     </div>
 </main>
 

@@ -1,4 +1,11 @@
-# Run the fleet: the end-to-end demo, executed for real (lesson 0014)
+# Run the fleet: the end-to-end demo, executed for real (lesson 0015)
+
+> **Note (reorg, see [[0017-async-native-reorg]]):** lessons 14↔15 were later swapped
+> so the end-to-end demo is **async-native**. This record's session is now **lesson
+> 0015** (run the fleet, async); the sync coordinator it describes was dropped, and its
+> async rewrite is now **lesson 0014**. The findings below (GCL waves, partial failure,
+> idempotency, the `wait_for_flow_run` async-only discovery) all still hold — but the
+> narrative uses the **original** numbering (it was lesson 0014 when written).
 
 Fourteenth lesson, sixth of the expanded scale arc ([[0008-mission-expanded-scale]]),
 and the payoff the last three records all flagged as the biggest gap: L11–L13 built a

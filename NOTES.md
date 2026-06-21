@@ -53,11 +53,16 @@ baseline) and `0008-mission-expanded-scale` (the 2026-06-21 scope change).
 
 - `0001`–`0007` ↔ **L1–L7** (aligned)
 - `0008-mission-expanded-scale` ↔ **—** (decision record, no lesson — the +1 starts here)
-- `0009` / `0010` / `0011` / `0012` / `0013` / `0014` / `0015` ↔ **L8** / **L9** / **L10** / **L11** / **L12** / **L13** / **L14**
+- `0009` / `0010` / `0011` / `0012` / `0013` ↔ **L8** / **L9** / **L10** / **L11** / **L12**
+- `0014` ↔ **L13** (gather)
+- `0015` ↔ **L15** and `0016` ↔ **L14** — **crossed** by the async-native reorg
+  ([[0017-async-native-reorg]]): the lessons swapped (record 0015 = run-the-fleet = now
+  L15; record 0016 = async coordinator = now L14), but the records did not.
+- `0017-async-native-reorg` ↔ **—** (decision record, no lesson — the L14↔L15 swap)
 
 Don't renumber to "align" them: records cross-link by slug via wikilinks
 (`[[0008-mission-expanded-scale]]` alone is referenced by 0009, 0010, and 0012), so
-renumbering would break the graph.
+renumbering would break the graph. The 0015/0016 ↔ L15/L14 crossing is intentional.
 
 ## Course arc (tentative — toward the mission)
 
@@ -101,27 +106,29 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
     results-vs-states across machines (ties back to L4 — return values need persisted
     shared storage). New reusable `.batch` widget; verified `wait_for_flow_run` /
     `State` predicates against the build. ← done (lesson 0013).
-14. **Run the fleet** — the runnable end-to-end demo, finally executed on the Docker
-    stack. New script `10_fleet.py` (first script since `09_*`): `encode-segment/encode`
-    (GCL + `occupy` around a `sleep` subprocess, `persist_result`) + `process-archive/extract`
-    (fan out `run_deployment(timeout=0, idempotency_key=…)`, gather). Verified LIVE:
-    happy path `6 ok` in 3 waves of 2 (GCL holds), partial failure `5 ok, 1 failed:[3]`,
-    idempotent rerun = 0 new encodes. **First lesson run end-to-end, not just `inspect`.**
-    Surfaced a real correction: L13's `wait_for_flow_run` is **async-only** in `3.7.5.dev4`
-    — sync coordinator polls via `get_client(sync_client=True)` instead; cheatsheet fixed.
-    New `.runboard` widget. ← done (lesson 0014).
-15. **The async coordinator** — rewrite L14's sync coordinator as one `async def` flow:
-    `arun_deployment` + `await wait_for_flow_run` + `asyncio.gather` (two phases, both
-    concurrent), deleting the hand-rolled sync poll loop. New script `11_fleet_async.py`
-    (deploys `process-archive-async/extract` alongside the sync one; reuses L14's encode
-    deployment). First-principles honesty beat: async does NOT speed the encodes (that
-    was `timeout=0` + GCL all along) — it buys the documented API, concurrent _dispatch_
-    (matters at high fan-out), and less code. New reusable `.race` widget. Verified
-    end-to-end (`6 ok`, waves of 2). **Surfaced a real race:** `wait_for_flow_run` is
+**Async-native reorg 2026-06-21** (learner: "swap L14 and L15 so end2end is async
+ready"): the two lessons below were swapped so the end-to-end demo is async-native, and
+`10_fleet.py` was rewritten async (the sync coordinator + `11_fleet_async.py` dropped).
+See [[0017-async-native-reorg]]. Items renumbered to the post-swap order:
+
+14. **The async coordinator** — one `async def` coordinator: `arun_deployment` +
+    `await wait_for_flow_run` + `asyncio.gather` (two phases, both concurrent), no
+    hand-rolled poll loop. Comes _before_ running the fleet; builds on L13's gather
+    (`wait_for_flow_run` is async-only → the coordinator must be async). First-principles
+    honesty beat: async does NOT speed the encodes (that was `timeout=0` + GCL all along)
+    — it buys the documented API, concurrent _dispatch_ (matters at high fan-out), and
+    less code. New reusable `.race` widget. **The race:** `wait_for_flow_run` is
     event-driven (`poll_interval` ignored) and its re-read can lag the commit → a finished
     run comes back `RUNNING` (~1 in 5) and looks failed; fix = re-read authoritative state
     before classifying (8/8 clean). Also pinned `fr.state.result.aio` drops `self` → use
-    `aresult`. ← done (lesson 0015). See [[0016-async-coordinator]].
+    `aresult`. ← done (lesson 0014). Record: [[0016-async-coordinator]].
+15. **Run the fleet** — the runnable end-to-end demo, async-native, executed on the Docker
+    stack. `10_fleet.py`: `encode-segment/encode` (GCL + `occupy` around a `sleep`
+    subprocess, `persist_result`) + the **async** `process-archive/extract` coordinator
+    (fan out `arun_deployment(timeout=0, idempotency_key=…)` via `asyncio.gather`, gather,
+    re-read settle). Verified LIVE (async): happy path `6 ok` in 3 waves of 2 (GCL holds),
+    partial failure `5 ok, 1 failed:[3]`, idempotent rerun = 0 new encodes. `.runboard`
+    widget. ← done (lesson 0015). Record: [[0015-run-the-fleet]].
 16. (next) Candidates, in rough priority: a **cold review of L11–L15** — spacing is now
     overdue (FIVE lessons of new material since the last review at L10; trigger is elapsed
     time + volume, not lesson count); a **bounded re-dispatch loop** (retry only the failed
