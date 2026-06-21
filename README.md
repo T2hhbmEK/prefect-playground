@@ -31,6 +31,14 @@ docker compose down                   # stop (data persists in volumes)
 The host client talks to the Dockerized server via `prefect.toml`, so there's no need to
 run `prefect server start` by hand.
 
+## Tests
+
+```bash
+uv run pytest        # docs-integrity + config + script-smoke + flow tests (no Docker)
+```
+
+See `AGENTS.md` for what each module covers.
+
 ## Notes
 
 - Prefect is pinned to a dev build (`3.7.5.dev4`); the server image (`Dockerfile.server`)

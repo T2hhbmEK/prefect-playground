@@ -64,7 +64,29 @@ assume released-version behavior (verify against the Prefect GitHub source if do
 - Run an example flow: `uv run python 01_getting_started.py`.
 - Prefect CLI: `uv run prefect <cmd>` (e.g. `uv run prefect flow-run ls`).
 
-There is no test suite or build step configured.
+No build step is configured.
+
+## Tests
+
+`uv run pytest` (pytest is a uv dev dependency; config in `pyproject.toml`
+`[tool.pytest.ini_options]`). The suite needs **no Docker** — it never touches the
+`:4200` server. `tests/`:
+
+- **`test_docs_integrity.py`** — the teaching artifacts are the repo's product, so
+  these guard them: every relative `href` across `lessons/` + `reference/` resolves,
+  every lesson links `../assets/lesson.css` and cites an external primary source
+  (review lessons exempt via `NO_CITATION_OK`), `[[wikilinks]]` in `learning-records/`
+  resolve, lessons/records are contiguously numbered, and every page parses with a `<title>`.
+- **`test_repo_config.py`** — pins the config facts AGENTS.md claims (ruff in `ruff.toml`
+  not pyproject, no `[tool.prefect.*]` in pyproject, analytics off in compose, bun-only
+  lockfile, client/server share the `3.7.5.dev4` pin). These have rotted before.
+- **`test_scripts_smoke.py`** — every example script imports side-effect-free (real work
+  stays behind `__main__`); each numbered script defines a flow.
+- **`test_flows.py`** — `task.fn` unit tests plus one end-to-end run via
+  `prefect_test_harness` (in-process ephemeral server, marked `slow`).
+
+Markers (`pyproject.toml`): `-m "not slow"` skips the harness run; `integration` is
+reserved for tests that need the live Dockerized stack (none yet).
 
 ## Configuration — where settings actually live
 

@@ -10,5 +10,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
     "ruff>=0.15.17",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "slow: spins up an in-process Prefect test server (deselect with -m 'not slow')",
+    "integration: requires the live Dockerized stack on :4200 (deselect with -m 'not integration')",
 ]
