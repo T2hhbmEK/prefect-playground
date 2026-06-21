@@ -1,0 +1,322 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 15 — The async coordinator</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 15 · Scaling out</p>
+    <h1>The async coordinator</h1>
+    <p class="subtitle">
+        <a href="0014-run-the-fleet.html">L14</a> ran the fleet for real and hit a
+        wall: <code>wait_for_flow_run</code> is async-only in our build, so the sync
+        coordinator had to hand-roll a poll loop. Make the coordinator
+        <code>async</code> and that loop disappears — and running it surfaces one more
+        catch the slide never would.
+    </p>
+</header>
+
+<main>
+    <p>
+        The win: <strong>rewrite L14's coordinator as one <code>async def</code> flow —
+        <code>arun_deployment</code> to fire, <code>await wait_for_flow_run</code> to
+        gather, <code>asyncio.gather</code> to run both phases concurrently — deleting
+        the hand-rolled poll loop entirely.</strong> The encode side is untouched; only
+        the coordinator changes. New script:
+        <a href="../11_fleet_async.py">11_fleet_async.py</a>.
+    </p>
+
+    <h2>0 · The loose end from L14</h2>
+    <p>
+        L13 taught <code>wait_for_flow_run(r.id)</code> as the way to gather a fan-out.
+        L14 <em>ran</em> it and found that in <code>3.7.5.dev4</code> the function is a
+        <strong>coroutine</strong> — calling it from a sync flow gives
+        <code>'coroutine' object has no attribute 'state'</code>. The sync coordinator
+        in <a href="../10_fleet.py">10_fleet.py</a> worked around it by polling run
+        state with the sync client in a hand-written loop. That loop is the smell this
+        lesson removes.
+    </p>
+    <div class="note">
+        <span class="label">Verified in this build</span>
+        <code>inspect.iscoroutinefunction(wait_for_flow_run)</code> → <code>True</code>
+        (no <code>.aio</code>). <code>run_deployment</code> is sync with an async
+        <code>.aio</code>, and <code>arun_deployment</code> is importable from
+        <code>prefect.deployments</code> as a true coroutine. <code>State</code> grows
+        an <code>aresult()</code> coroutine alongside the sync <code>result()</code>.
+    </div>
+
+    <h2>1 · The diff: sync → async</h2>
+    <p>Same shape as L14 — fire all with <code>timeout=0</code>, then gather — but every
+        blocking call becomes an awaited one, and the poll loop is gone:</p>
+    <pre><code># 10_fleet.py (sync)                        # 11_fleet_async.py (async)
+runs = [run_deployment(...) for s in segs]   runs = await asyncio.gather(*(
+                                                 arun_deployment(..., timeout=0)
+                                                 for s in segs))
+finished = gather([r.id for r in runs])      finished = await asyncio.gather(*(
+  # ^ hand-rolled poll loop over the            wait_for_flow_run(r.id)
+  #   sync client (15 lines)                     for r in runs))
+res = fr.state.result(...)                    res = await fr.state.aresult(...)</code></pre>
+    <p class="try">
+        <span class="label">Two phases, both concurrent</span>
+        <code>asyncio.gather</code> appears twice: once over the <em>creates</em>
+        (phase 1) and once over the <em>waits</em> (phase 2). Each create fires with
+        <code>timeout=0</code> so it returns the instant the run exists — fire
+        <em>all</em>, then wait, exactly as in L13.
+    </p>
+
+    <h2>2 · What async actually buys you (be honest)</h2>
+    <p>
+        Tempting to say "now the encodes run in parallel." They already did — in L14,
+        on one host. <code>timeout=0</code> is what fans the encodes out across the
+        fleet; the GCL is what gates them. Async changes <strong>none</strong> of that.
+        What it changes:
+    </p>
+    <table>
+        <tr><th>Async gives you</th><th>Why it matters</th></tr>
+        <tr><td>The documented gather API</td><td><code>wait_for_flow_run</code> only works under <code>await</code> here — async is the <em>only</em> way to use it instead of a hand-rolled loop.</td></tr>
+        <tr><td>Concurrent <em>dispatch</em></td><td>The sync version issues N create-calls back-to-back. <code>gather</code> fires them at once — invisible at 6 segments, the whole cost at 600.</td></tr>
+        <tr><td>Less code</td><td>The 15-line poll loop is deleted.</td></tr>
+        <tr><td>Cheap waiting</td><td>One coroutine per run, not a thread blocking — scales to thousands of in-flight encodes.</td></tr>
+    </table>
+    <p>
+        The honest takeaway: for the six-segment demo, async barely moves the wall
+        clock — the encode time dominates. It earns its keep on <strong>dispatch at
+        high fan-out</strong> and on using the intended API. Drag the slider:
+    </p>
+
+    <div class="race" id="race-sim">
+        <div class="controls">
+            <div>
+                <span class="lbl">Segments to fan out</span>
+                <input type="range" min="6" max="600" step="6" value="6" />
+                <span class="nval">6</span>
+            </div>
+            <button class="go">▶ Dispatch &amp; gather</button>
+        </div>
+        <div class="lane">
+            <div class="name">Sync — creates issued one after another</div>
+            <div class="bar" data-lane="sync"><div class="dispatch"><span></span></div><div class="wait"><span></span></div></div>
+        </div>
+        <div class="lane">
+            <div class="name">Async — creates issued concurrently (<code>asyncio.gather</code>)</div>
+            <div class="bar" data-lane="async"><div class="dispatch"><span></span></div><div class="wait"><span></span></div></div>
+        </div>
+        <div class="key">
+            <span><i class="kd"></i>dispatch (N create-calls)</span>
+            <span><i class="kw"></i>encodes run on the fleet — identical either way</span>
+        </div>
+        <div class="readout"></div>
+    </div>
+
+    <h2>3 · Run it</h2>
+    <p>The pools, the GCL, and the <code>encode-segment/encode</code> deployment are all
+        from L14 — unchanged. You only register the new coordinator:</p>
+    <pre><code># the async coordinator deploys ALONGSIDE the sync one (distinct flow name)
+uv run python 11_fleet_async.py
+
+# same two workers as L14, one per pool (encode worker carries its WORKER_ID → GCL)
+WORKER_ID=local-1 uv run prefect worker start --pool encode  --limit 6 --name encode-1
+uv run prefect worker start --pool extract --limit 4 --name extract-1
+
+# fire it — note the deployment name ends in -async
+uv run prefect deployment run process-archive-async/extract -p archive=clip01.tar
+# →  process-archive-async — 6 ok, 0 failed: []   (waves of 2, same as L14)</code></pre>
+    <p>
+        Verified end-to-end on <code>3.7.5.dev4</code>: <code>6 ok, 0 failed</code>, the
+        encode worker logging the same <strong>three waves of two</strong> — the GCL
+        gates identically whether the coordinator is sync or async.
+    </p>
+
+    <h2>4 · The catch running it surfaced</h2>
+    <div class="why">
+        <span class="label">A completed encode came back marked "failed" — once in five runs</span>
+        The first live run reported <code>5 ok, 1 failed: [3]</code> — but segment&nbsp;3's
+        encode had clearly <em>completed</em> (the worker logged
+        <code>done → …/seg-3.ivf</code>, and the run was <code>Completed</code> on the
+        server). The bug was in the gather. Reading the source explains it:
+        <code>wait_for_flow_run</code> here is <strong>event-driven</strong> — its
+        <code>poll_interval</code> is deprecated/ignored. It returns on the first
+        final-state <em>event</em>, then re-reads the run — and that re-read can race
+        the state commit, handing back a still-<code>RUNNING</code>
+        <code>FlowRun</code> for a run that actually finished. Classify on it and a good
+        encode looks failed.
+        <pre style="margin:0.6rem 0 0"><code># robust: re-read the authoritative state before classifying (one read settles it)
+async with get_client() as client:
+    finished = await asyncio.gather(*(client.read_flow_run(fr.id) for fr in finished))</code></pre>
+        With the re-read, <strong>8 of 8</strong> reruns came back clean. This is L14's
+        lesson again: running it shows you the API reality the docstring hides.
+    </div>
+
+    <h2>5 · Async flow mechanics</h2>
+    <ul>
+        <li><strong>You don't call <code>asyncio.run</code>.</strong> Prefect runs your
+            <code>async def</code> flow inside its own event loop — both when a worker
+            executes it and when you call it directly.</li>
+        <li><strong>Mixing sync and async:</strong> an <code>async</code> flow can only
+            <code>await</code> coroutines. The <code>unpack</code> task is
+            <code>async</code> too, so <code>segments = await unpack(...)</code> reads
+            cleanly without bridging a loop.</li>
+        <li><strong>Results:</strong> <code>await fr.state.aresult(raise_on_failure=False)</code>.
+            The <code>fr.state.result.aio(...)</code> form looks right but drops
+            <code>self</code> in this build — use <code>aresult</code>.</li>
+    </ul>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="recall">
+        <div class="prompt">
+            You convert the coordinator from sync to async. Do the six encodes finish
+            faster? Explain what async <em>does</em> and <em>doesn't</em> change.
+            <span class="tag">L12·L15</span>
+        </div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">
+            <strong>No.</strong> The encodes already ran in parallel — that's
+            <code>timeout=0</code> firing them across the fleet, gated by the GCL, in
+            both versions. Async changes the <strong>dispatch</strong> (N creates issued
+            concurrently, not back-to-back), lets you use
+            <code>wait_for_flow_run</code> (async-only here), and deletes the poll loop.
+            The win shows up at <em>high</em> fan-out, not on six segments.
+        </div>
+    </div>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            Why does <code>11_fleet_async.py</code> use <code>arun_deployment</code> and
+            <code>await wait_for_flow_run</code> instead of the sync calls from L14?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">wait_for_flow_run is a coroutine here, so it only works inside an async flow</button>
+            <button class="opt" data-correct="false">The async versions make the encodes run on more cores</button>
+            <button class="opt" data-correct="false">Sync run_deployment cannot pass an idempotency_key</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            A live run reports one segment "failed", but its encode completed and the
+            run is <code>Completed</code> on the server. The most likely cause?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">wait_for_flow_run returned a state that raced the commit; re-read to settle it</button>
+            <button class="opt" data-correct="false">The GCL dropped the run because all slots were full</button>
+            <button class="opt" data-correct="false">aresult raised because the result was never persisted</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            At what point does the async coordinator beat the sync one on wall clock?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">When the fan-out is large — many create-calls issued concurrently, not serially</button>
+            <button class="opt" data-correct="false">Always — awaiting is faster than blocking for any number of runs</button>
+            <button class="opt" data-correct="false">Never — async is purely a style choice with no runtime effect</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">Run
+            deployments</a> (see the multi-run gather example) and Python's
+            <a href="https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"><code>asyncio.gather</code></a>.
+            Everything here — including the event-driven <code>wait_for_flow_run</code>
+            race — was run end-to-end against our <code>3.7.5.dev4</code> build.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want a <em>bounded
+        re-dispatch loop</em> next (retry only the failed segments N times, with a fresh
+        <code>idempotency_key</code> per attempt), a <em>GPU pool</em> routed by machine
+        class (<code>work_queue_name</code>), or a cold review of L11–L15 (five lessons
+        of new material — spacing is overdue)? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): a re-dispatch loop, a GPU pool, or a review ⏭</span>
+    </div>
+</main>
+
+<script>
+    // ---- Dispatch race: sync (serial creates) vs async (concurrent), same wait ----
+    (function () {
+        var w = document.getElementById("race-sim");
+        if (!w) return;
+        var slider = w.querySelector('input[type="range"]');
+        var nval = w.querySelector(".nval");
+        var go = w.querySelector(".go");
+        var readout = w.querySelector(".readout");
+        var syncBar = w.querySelector('.bar[data-lane="sync"]');
+        var asyncBar = w.querySelector('.bar[data-lane="async"]');
+
+        var CREATE_MS = 12;     // one create round-trip (illustrative)
+        var WAIT_MS = 12000;    // encodes on the fleet — same for both lanes
+
+        function setBar(bar, dispatchMs, waitMs, total) {
+            var d = bar.querySelector(".dispatch"), wt = bar.querySelector(".wait");
+            var dp = Math.max(2, (dispatchMs / total) * 100);
+            var wp = (waitMs / total) * 100;
+            d.style.width = dp + "%"; wt.style.width = wp + "%";
+            d.querySelector("span").textContent = dp > 8 ? (dispatchMs + "ms") : "";
+            wt.querySelector("span").textContent = wp > 14 ? "wait ~" + (waitMs / 1000) + "s" : "";
+        }
+
+        function render() {
+            var n = parseInt(slider.value, 10);
+            nval.textContent = n;
+            var syncD = n * CREATE_MS;          // serial creates
+            var asyncD = CREATE_MS;             // all at once
+            var syncTotal = syncD + WAIT_MS, asyncTotal = asyncD + WAIT_MS;
+            var scale = Math.max(syncTotal, asyncTotal);
+            setBar(syncBar, syncD, WAIT_MS, scale);
+            setBar(asyncBar, asyncD, WAIT_MS, scale);
+            var tail = (syncD - asyncD) / 1000;
+            readout.innerHTML =
+                "N = <strong>" + n + "</strong> · the encodes take the same wall clock either way " +
+                "(<code>timeout=0</code> + the GCL). The only difference is dispatch: " +
+                "sync issues <strong>" + n + "</strong> creates serially (<strong>" + syncD +
+                "ms</strong>), async fires them at once (<strong>~" + asyncD + "ms</strong>). " +
+                (n <= 12
+                    ? "At N = " + n + " the <strong>" + tail.toFixed(2) + "s</strong> difference is noise."
+                    : "That's <strong>" + tail.toFixed(2) + "s</strong> of pure coordinator overhead the async version never pays — before a single encode starts.");
+        }
+
+        slider.addEventListener("input", render);
+        go.addEventListener("click", render);
+        render();
+    })();
+
+    // ---- Recall card ----
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // ---- Scenario quizzes (same widget as every other lesson) ----
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) { b.disabled = true; });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector('button.opt[data-correct="true"]');
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right."
+                    : "✗ Not quite — the highlighted answer is correct. Check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

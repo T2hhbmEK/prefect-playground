@@ -378,6 +378,26 @@ th { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.78rem; text
 .runboard .readout .ok { color: var(--good); }
 .runboard .readout .err { color: var(--bad); }
 
+/* ---- Dispatch race (what async actually changes: the dispatch, not the encodes) ---- */
+.race { border: 1px solid var(--rule); border-radius: 10px; padding: 1.3rem 1.4rem; margin: 1.6rem 0; background: #fff; }
+.race .controls { display: flex; flex-wrap: wrap; gap: 1.4rem; align-items: center; margin-bottom: 1.1rem; }
+.race .lbl { display: block; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.64rem; font-weight: 700; margin-bottom: 0.35rem; }
+.race input[type="range"] { width: 190px; vertical-align: middle; }
+.race .nval { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-weight: 700; color: var(--ink); margin-left: 0.5rem; }
+.race .go { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; font-weight: 600; padding: 0.45rem 1.1rem; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.race .lane { margin: 0.55rem 0; }
+.race .lane .name { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.74rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 0.25rem; }
+.race .bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--rule); background: var(--code-bg); }
+.race .bar .dispatch { background: #ead9b6; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; }
+.race .bar .wait { background: #cfe0f3; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; }
+.race .bar span { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.62rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; }
+.race .readout { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.6; margin-top: 0.9rem; min-height: 3em; }
+.race .readout strong { color: var(--ink); }
+.race .key { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.68rem; color: var(--ink-faint); margin-top: 0.5rem; display: flex; gap: 1.1rem; flex-wrap: wrap; }
+.race .key i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 0.3rem; }
+.race .key .kd { background: #ead9b6; }
+.race .key .kw { background: #cfe0f3; }
+
 @media print {
   body { padding: 0; font-size: 11pt; }
   .quiz button.opt { border-color: #ccc; }

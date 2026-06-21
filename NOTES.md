@@ -110,11 +110,22 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
     Surfaced a real correction: L13's `wait_for_flow_run` is **async-only** in `3.7.5.dev4`
     — sync coordinator polls via `get_client(sync_client=True)` instead; cheatsheet fixed.
     New `.runboard` widget. ← done (lesson 0014).
-15. (next) Candidates, in rough priority: **the async coordinator** (`arun_deployment` +
-    `await wait_for_flow_run` + `asyncio.gather`) — now doubly motivated: L13 flagged
-    serial polling, L14 _proved_ `wait_for_flow_run` is async-only, so this closes the
-    sync/async loose end directly; a **bounded re-dispatch loop** (retry only failed
-    segments N times, needs a fresh `idempotency_key` per attempt — L14 records failures
-    but doesn't redo them); a **GPU pool** routed by machine class (`work_queue_name`);
-    or a **cold redo of L10** (spacing: L11–L14 = four lessons of new material since the
-    last review). Standing: `max_workers`; (much later) the K8s graduation; Dask/Ray.
+15. **The async coordinator** — rewrite L14's sync coordinator as one `async def` flow:
+    `arun_deployment` + `await wait_for_flow_run` + `asyncio.gather` (two phases, both
+    concurrent), deleting the hand-rolled sync poll loop. New script `11_fleet_async.py`
+    (deploys `process-archive-async/extract` alongside the sync one; reuses L14's encode
+    deployment). First-principles honesty beat: async does NOT speed the encodes (that
+    was `timeout=0` + GCL all along) — it buys the documented API, concurrent _dispatch_
+    (matters at high fan-out), and less code. New reusable `.race` widget. Verified
+    end-to-end (`6 ok`, waves of 2). **Surfaced a real race:** `wait_for_flow_run` is
+    event-driven (`poll_interval` ignored) and its re-read can lag the commit → a finished
+    run comes back `RUNNING` (~1 in 5) and looks failed; fix = re-read authoritative state
+    before classifying (8/8 clean). Also pinned `fr.state.result.aio` drops `self` → use
+    `aresult`. ← done (lesson 0015). See [[0016-async-coordinator]].
+16. (next) Candidates, in rough priority: a **cold review of L11–L15** — spacing is now
+    overdue (FIVE lessons of new material since the last review at L10; trigger is elapsed
+    time + volume, not lesson count); a **bounded re-dispatch loop** (retry only the failed
+    segments N times with a fresh `idempotency_key` per attempt — the natural next step now
+    that fan-out + gather + async are solid); or a **GPU pool** routed by machine class
+    (`work_queue_name`, untouched since L12). Standing: `max_workers`; (much later) the K8s
+    graduation; Dask/Ray.
