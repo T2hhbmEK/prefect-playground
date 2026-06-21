@@ -17,7 +17,8 @@ Working notes on how to teach this user. Update as preferences surface.
   these scripts.
 - Environment: uv-managed, `prefect==3.7.5.dev4` (a dev build — verify behavior
   against the GitHub source if docs disagree). Run things with `uv run`.
-- Telemetry disabled via `[tool.prefect.server] analytics_enabled = false`.
+- Telemetry disabled via `PREFECT_SERVER_ANALYTICS_ENABLED=false` in `docker-compose.yml`
+  (server-side env, set when the stack was Dockerized — not in `pyproject.toml`).
 - **Whole local stack is Dockerized** (`docker-compose.yml`, `docker compose up -d --build`):
   Prefect server (API/UI :4200) + its Postgres DB + MinIO. The server is built from
   `Dockerfile.server`, pinned to `prefect==3.7.5.dev4` (no published dev image), so

@@ -1,29 +1,39 @@
 # prefect-playground
 
-A playground for experimenting with [Prefect](https://docs.prefect.io) 3.x flows.
+A **Prefect 3 teaching workspace** — runnable example flows plus a structured set of
+lessons, reference cheatsheets, and learning records built with the `teach` skill.
 
-Numbered scripts (e.g. `01_getting_started.py`) are standalone, self-contained
-examples — each defines its own `@flow` and runs via `if __name__ == "__main__"`.
+Numbered scripts (e.g. `01_getting_started.py` … `10_fleet.py`) are standalone,
+self-contained examples — each defines its own `@flow` and runs via
+`if __name__ == "__main__"`. See `MISSION.md` for the goal, `NOTES.md` for the course
+arc, and `AGENTS.md` for the full layout.
 
 ## Setup
 
-Managed with [uv](https://docs.astral.sh/uv/):
+Managed with [uv](https://docs.astral.sh/uv/) (Python) and [bun](https://bun.sh) (JS tooling):
 
 ```bash
-uv sync
+uv sync        # Python deps
+bun install    # lint/format tooling + git hooks
 ```
 
-## Usage
+## Running
+
+The local stack — Prefect server + UI, its Postgres DB, and a MinIO object store — runs
+in Docker:
 
 ```bash
-# Run an example flow
-uv run python 01_getting_started.py
-
-# Prefect CLI (e.g. start a local API/UI)
-uv run prefect server start
+docker compose up -d --build          # server/UI at http://localhost:4200
+uv run python 01_getting_started.py   # run a flow against it
+docker compose down                   # stop (data persists in volumes)
 ```
+
+The host client talks to the Dockerized server via `prefect.toml`, so there's no need to
+run `prefect server start` by hand.
 
 ## Notes
 
-Prefect telemetry is disabled via `[tool.prefect.server] analytics_enabled = false`
-in `pyproject.toml`.
+- Prefect is pinned to a dev build (`3.7.5.dev4`); the server image (`Dockerfile.server`)
+  is built to match the client.
+- Server telemetry is disabled via `PREFECT_SERVER_ANALYTICS_ENABLED=false` in
+  `docker-compose.yml`; client settings live in `prefect.toml`.
