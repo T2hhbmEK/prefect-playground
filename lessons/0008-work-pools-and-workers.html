@@ -1,0 +1,198 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 8 — Work pools &amp; workers</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 8 · Scaling out</p>
+    <h1>Work pools &amp; workers</h1>
+    <p class="subtitle">
+        <code>serve()</code> was one process that did everything — and died when you
+        closed the terminal. The grown-up model splits that in two:
+        <em>deployments</em> describe <strong>what</strong> to run, and
+        <em>workers</em> decide <strong>where</strong> to run it. This is the door to
+        scaling out and, eventually, production.
+    </p>
+</header>
+
+<main>
+    <p>
+        Two lessons flagged the same ceiling: <code>serve()</code> <em>is</em> the
+        scheduler (<a href="0005-on-a-schedule.html">L5</a>), and an in-process hook
+        can't survive a dead process (<a href="0007-get-alerted.html">L7</a>).
+        Both point at the same fix. This lesson's win: <strong>deploy a flow to a
+        work pool, start a worker, and watch the worker — not you — execute the
+        run.</strong> This is the first step of the
+        <a href="../MISSION.md">expanded mission</a>.
+    </p>
+
+    <h2>1 · Three pieces, cleanly separated</h2>
+    <table>
+        <tr><th>Piece</th><th>Role</th></tr>
+        <tr><td><strong>Deployment</strong></td><td>The <em>what</em>: your flow + schedule + parameters, pointed at a pool.</td></tr>
+        <tr><td><strong>Work pool</strong></td><td>The <em>queue</em>: a typed bucket that scheduled runs land in, waiting to be picked up.</td></tr>
+        <tr><td><strong>Worker</strong></td><td>The <em>where</em>: a process that polls a pool and runs whatever it finds.</td></tr>
+    </table>
+    <p>
+        Runs flow one way: deployment → pool → worker.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">1</a>
+        With <code>serve()</code>, one process was all three at once. Splitting them
+        means the schedule lives on the <em>server</em> (it survives any terminal),
+        and you can point many deployments at one pool, or run several workers for
+        more throughput.
+    </p>
+
+    <h2>2 · Create a pool, deploy to it</h2>
+    <p>
+        A <strong>process</strong> work pool runs each flow run as a local
+        subprocess — no Docker, no Kubernetes, perfectly local:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">1</a>
+    </p>
+    <pre><code>uv run prefect work-pool create local-process --type process</code></pre>
+    <p>
+        Then deploy. Because a worker runs in a <em>separate</em> process, it needs
+        to know where your code lives — <code>from_source()</code> tells it:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/store-flow-code">2</a>
+    </p>
+    <pre><code>worker_pipeline.from_source(
+    source=str(Path(__file__).parent),          # load code from this folder
+    entrypoint="08_workers.py:worker_pipeline",
+).deploy(
+    name="worker-pipeline",
+    work_pool_name="local-process",
+)</code></pre>
+    <p>
+        <code>08_workers.py</code> is in your repo. Run it once — it registers the
+        deployment and <strong>exits immediately</strong>:
+    </p>
+    <pre><code>uv run python 08_workers.py</code></pre>
+    <div class="why">
+        <span class="label">deploy() ≠ run</span>
+        Unlike <code>serve()</code>, <code>deploy()</code> doesn't run anything — it
+        just records the deployment. If you trigger a run now, it sits
+        <span class="pill scheduled">Scheduled</span> forever. Nothing executes until
+        a <em>worker</em> is polling the pool. This trips up everyone once.
+    </div>
+
+    <h2>3 · Start a worker and watch it work</h2>
+    <p>In one terminal, start a worker on that pool — leave it running:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">1</a></p>
+    <pre><code>uv run prefect worker start --pool local-process</code></pre>
+    <p>In another, trigger a run of the deployment:</p>
+    <pre><code>uv run prefect deployment run 'worker-pipeline/worker-pipeline'</code></pre>
+    <p>Watch the <em>worker's</em> terminal — it picks the run up and executes it:</p>
+    <pre><code>Flow run 'furry-pigeon' - Running 1 deployment pull step(s)
+Flow run 'furry-pigeon' - Beginning flow run for flow 'worker-pipeline'
+Task run 'fetch_rows-69e' - Finished in state Completed()
+Flow run 'furry-pigeon' - [from-a-worker] processed 42 rows — executed by a worker, not by me
+Flow run 'furry-pigeon' - Finished in state Completed()</code></pre>
+    <p>
+        The run executed in a process you didn't launch by hand and that isn't tied
+        to your trigger command. Add a <code>cron=</code> to the deploy and the
+        server schedules the runs; the worker executes them — around the clock, with
+        no <code>serve()</code> process babysitting anything.
+    </p>
+
+    <h2>4 · serve() or workers?</h2>
+    <table>
+        <tr><th></th><th><code>serve()</code></th><th>work pool + worker</th></tr>
+        <tr><td>Processes</td><td>One (does everything)</td><td>Server schedules · worker(s) execute</td></tr>
+        <tr><td>Survives a closed terminal</td><td>No</td><td>Yes (worker is its own service)</td></tr>
+        <tr><td>Scale / many deployments</td><td>Awkward</td><td>Natural — more workers, shared pools</td></tr>
+        <tr><td>Path to remote infra</td><td>None</td><td>Swap pool type (Docker, K8s…) later</td></tr>
+        <tr><td>Best for</td><td>Dev, a single flow</td><td>Anything heading toward production</td></tr>
+    </table>
+    <p>
+        Same deployment concept either way — you've just moved the <em>execution</em>
+        out into a worker. Details on the
+        <a href="../reference/work-pools-cheatsheet.html">work pools cheatsheet</a>.
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You run <code>deploy()</code>, then trigger a run, but it just sits
+            <span class="pill scheduled">Scheduled</span> and never executes. Why?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">The deployment was never registered properly</button>
+            <button class="opt" data-correct="true">No worker is polling that work pool yet</button>
+            <button class="opt" data-correct="false">The cron schedule had not yet come due</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            In the work-pool model, which piece is the process that actually
+            <em>executes</em> a flow run?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">The work pool holding the queued run</button>
+            <button class="opt" data-correct="true">The worker polling that work pool</button>
+            <button class="opt" data-correct="false">The deployment describing the run</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            A worker runs in a separate process from your deploy script. How does it
+            know which code to execute?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">It re-imports whatever you last ran</button>
+            <button class="opt" data-correct="true">From the from_source path and entrypoint</button>
+            <button class="opt" data-correct="false">It rebuilds the flow from its run logs</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">Deploy via Python</a>
+            (work pools + workers) and
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/store-flow-code">Store flow code</a>
+            (<code>from_source</code> for process pools).
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to run
+        <em>two</em> workers and watch them share a pool, set per-worker concurrency
+        limits, give the pool default <code>job_variables</code>, or see what a
+        Docker work pool would change? Curious how this becomes the
+        crash-resilient alerting from <a href="0007-get-alerted.html">L7</a>? Ask in
+        the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/work-pools-cheatsheet.html">Work pools cheatsheet →</a></span>
+        <span><a href="0009-distribute-the-work.html">Next: Lesson 9 — distribute the work →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. What to run and where to run it are now separate."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

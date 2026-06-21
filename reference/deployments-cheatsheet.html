@@ -1,0 +1,73 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deployments &amp; schedules — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Deployments &amp; schedules</p>
+  <h1>Deployments via <code>serve()</code></h1>
+  <p class="subtitle">Turn a script into a flow that runs itself on a schedule — local, no work pools. Copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>The one-liner</h2>
+  <pre><code>from prefect import flow
+
+@flow(log_prints=True)
+def pipeline(label: str = "nightly"):
+    print(f"running {label}")
+
+if __name__ == "__main__":
+    pipeline.serve(name="my-deployment", cron="0 8 * * *")</code></pre>
+  <div class="why"><span class="label">What serve() is</span> One call that (1) registers a <em>deployment</em> and (2) runs a long-lived process which creates and executes scheduled runs. It blocks — keep it running, Ctrl-C to stop. No workers, no containers.</div>
+
+  <h2>serve() arguments</h2>
+  <table>
+    <tr><th>Argument</th><th>What it does</th></tr>
+    <tr><td><code>name="..."</code></td><td>Deployment name. Trigger it as <code>&lt;flow-name&gt;/&lt;name&gt;</code>.</td></tr>
+    <tr><td><code>cron="0 8 * * *"</code></td><td>Clock-based schedule (standard cron syntax).</td></tr>
+    <tr><td><code>interval=3600</code></td><td>Every N <em>seconds</em>. (Also accepts a <code>timedelta</code>.)</td></tr>
+    <tr><td><code>parameters={...}</code></td><td>Default arguments passed to the flow on each scheduled run.</td></tr>
+    <tr><td><code>tags=[...]</code></td><td>Labels for filtering runs in the UI / CLI.</td></tr>
+    <tr><td><code>paused=True</code></td><td>Register the deployment but don't schedule until resumed.</td></tr>
+  </table>
+
+  <h2>Schedules: cron vs interval</h2>
+  <pre><code>pipeline.serve(name="nightly", cron="0 8 * * *")    # every day at 08:00
+pipeline.serve(name="hourly",  interval=3600)       # every hour
+pipeline.serve(name="nightly", cron="0 8 * * *", parameters={"label": "prod"})</code></pre>
+  <table>
+    <tr><th>cron field</th><th>min</th><th>hour</th><th>day-of-month</th><th>month</th><th>day-of-week</th></tr>
+    <tr><td><code>0 8 * * *</code></td><td>0</td><td>8</td><td>*</td><td>*</td><td>*</td></tr>
+    <tr><td><code>*/15 * * * *</code></td><td colspan="5">every 15 minutes</td></tr>
+    <tr><td><code>0 9 * * 1</code></td><td colspan="5">09:00 every Monday</td></tr>
+  </table>
+
+  <h2>Trigger &amp; inspect from the CLI</h2>
+  <pre><code>uv run prefect deployment ls
+uv run prefect deployment run 'pipeline/my-deployment'   # one off-schedule run
+uv run prefect flow-run ls --limit 5</code></pre>
+
+  <h2>The gotcha</h2>
+  <div class="note"><span class="label">No process, no runs</span> <code>serve()</code> <em>is</em> the scheduler. Kill the process and the schedule stops firing. For real use keep it alive (<code>launchd</code>, <code>tmux</code>, <code>systemd</code>). The alternative that survives a logout — <code>flow.deploy()</code> + work pools + workers — needs infra that's out of scope while learning locally.</div>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Want</th><th>Right tool</th></tr>
+    <tr><td>Run on a clock (08:00 daily)</td><td><code>serve(cron="0 8 * * *")</code></td></tr>
+    <tr><td>Run every N seconds/minutes</td><td><code>serve(interval=N)</code></td></tr>
+    <tr><td>Same flow, different defaults</td><td><code>serve(..., parameters={...})</code></td></tr>
+    <tr><td>Fire one run now</td><td><code>prefect deployment run '&lt;flow&gt;/&lt;name&gt;'</code></td></tr>
+    <tr><td>Survive a logout / scale out</td><td><code>deploy()</code> + work pool (later)</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/deployment_infra/run-flows-in-local-processes">Run flows in local processes</a> and <a href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">Deploy via Python</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0005-on-a-schedule.html">← Lesson 5: Put it on a schedule</a></span>
+    <span><a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

@@ -1,0 +1,7 @@
+# Prefect server pinned to the SAME dev build as the project's client.
+# prefecthq/prefect publishes no `3.7.5.dev4` tag, and a stable image would
+# differ in API version from the pinned client — so we build a matching image.
+# `asyncpg` is added for the PostgreSQL backend used by docker-compose.
+FROM python:3.13-slim
+
+RUN pip install --no-cache-dir "prefect==3.7.5.dev4" asyncpg

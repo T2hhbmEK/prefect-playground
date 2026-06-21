@@ -1,0 +1,237 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 10 — Review &amp; retrieve</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 10 · Interleaved review</p>
+    <h1>Review &amp; retrieve</h1>
+    <p class="subtitle">
+        No new material — this lesson makes the last nine <em>stick</em>. The
+        questions are deliberately shuffled across topics, and you answer from
+        memory <em>before</em> revealing. The effort of recall is what converts
+        "I've seen this" into "I know this".
+    </p>
+</header>
+
+<main>
+    <div class="note">
+        <span class="label">How to use this</span>
+        For each card, <strong>say or type your answer out loud first</strong>, then
+        hit <em>Reveal</em>. If you blank, that's a signal — not a failure. Note the
+        <span class="tag">L#</span> tag and revisit that lesson. Struggling a little
+        here is exactly what builds durable memory (it's called <em>desirable
+        difficulty</em>).
+    </div>
+
+    <h2>Part 1 · Recall from memory</h2>
+    <p>Think the answer through completely, <em>then</em> reveal to check.</p>
+
+    <div class="recall">
+        <div class="prompt">You write <code>@task(retries=3)</code>. It fails every time. How many times does it run in total? <span class="tag">L2</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>4 total</strong> — the first attempt plus 3 retries. <code>retries=N</code> means <code>N+1</code> runs.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">A run's state is <span class="pill crashed">Crashed</span>, not <span class="pill failed">Failed</span>. Where do you look — and why? <span class="tag">L1·L6</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">At the <strong>infrastructure</strong> (machine/process — OOM, killed), not your code. Failed = your code raised (there's a traceback); Crashed = the process vanished before it could report one.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Your <code>cache_policy=INPUTS</code> cache works within a run but never reuses results <em>across</em> scheduled runs when you switch to the default. What's the cause? <span class="tag">L3</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The default policy is <code>INPUTS + TASK_SOURCE + <strong>RUN_ID</strong></code>. <code>RUN_ID</code> makes every run's keys unique, so it only hits within one run. Drop it (use <code>INPUTS</code>) for cross-run reuse.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Your task transcodes a 200&nbsp;MB video. What should it <em>return</em>, and where does the mp4 itself go? <span class="tag">L4</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">Return the <strong>object key</strong> (a small string); upload the mp4 to object storage yourself. <em>Cache the pointer, store the payload.</em> <code>result_storage</code> holds the return value, not the big file.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">In one sentence: what two things does <code>flow.serve()</code> do? <span class="tag">L5</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">It <strong>registers a deployment</strong> and <strong>runs a long-lived process</strong> that creates &amp; executes its scheduled runs. Close the terminal → no more runs.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">You ran <code>deploy()</code> and triggered a run, but it sits <span class="pill scheduled">Scheduled</span> forever. Why? <span class="tag">L8</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">No <strong>worker</strong> is polling that work pool. <code>deploy()</code> only registers; a worker (<code>prefect worker start --pool …</code>) is what actually executes.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Why does <code>ThreadPoolTaskRunner</code> speed up I/O-bound tasks but <em>not</em> CPU-bound ones? <span class="tag">L9</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The <strong>GIL</strong>: only one thread runs Python bytecode at a time. A <em>waiting</em> task releases it (so I/O overlaps); a <em>computing</em> task holds it (so threads take turns). CPU parallelism needs <code>ProcessPoolTaskRunner</code>.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">An overnight scheduled run failed. Name the CLI chain to diagnose it from history. <span class="tag">L6</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><code>flow-run ls --state Failed</code> → <code>flow-run inspect &lt;id&gt;</code> → <code>flow-run logs &lt;id&gt;</code> → <code>flow-run retry &lt;id&gt;</code> once fixed.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">An <code>on_failure</code> hook sends your alerts. The process gets OOM-killed (<span class="pill crashed">Crashed</span>). Does the alert fire? What's the fix? <span class="tag">L7</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>No</strong> — the hook runs <em>in</em> the now-dead process. Use a server-side <strong>Automation</strong> (trigger on Failed/Crashed → notify); the server runs it independently, and one rule covers every deployment.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">When does setting <code>@flow(task_runner=…)</code> do <em>nothing</em>? <span class="tag">L9</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">When you call tasks the plain way. Runners only act on <code>.submit()</code> / <code>.map()</code>ed tasks — everything else stays sequential.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">You moved an mp4 pipeline from local MinIO to Tencent COS. How much of the <em>task code</em> changes? <span class="tag">L4</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>None.</strong> Both are S3-compatible — you swap only the <code>S3Bucket</code> block (<code>MinIOCredentials</code> + localhost → <code>AwsCredentials</code> + the COS endpoint). The <code>upload_from_path</code> / <code>result_storage</code> code is identical.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Two distribution axes: what does a <em>work pool</em> spread, vs a <em>task runner</em>? <span class="tag">L8·L9</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">Work pool + worker spreads <strong>whole flow runs</strong> across infrastructure (set on the deployment). Task runner spreads the <strong>tasks within one run</strong> across cores/threads (set in flow code). Orthogonal — they compose.</div>
+    </div>
+
+    <h2>Part 2 · Decide (which tool?)</h2>
+    <p>These mix lessons on purpose — the skill is picking the right tool, fast.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            A task calls an API that returns <code>404</code> for a deleted record.
+            Retrying is pointless. What stops Prefect wasting attempts?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Add a much longer exponential backoff delay</button>
+            <button class="opt" data-correct="true">Return False from a retry_condition_fn callable</button>
+            <button class="opt" data-correct="false">Lower the task timeout_seconds to fail fast</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            A task hangs forever on a dead socket — it makes no progress and never
+            returns. Retries won't help. What caps it?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A higher retries count on the stuck task</button>
+            <button class="opt" data-correct="true">A timeout_seconds value on the stuck task</button>
+            <button class="opt" data-correct="false">A process pool runner for the stuck task</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            You map a task that just downloads files and waits on the network over
+            500 URLs. Which runner is the right default?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">A ThreadPoolTaskRunner to overlap the waits</button>
+            <button class="opt" data-correct="false">A ProcessPoolTaskRunner to use the cores</button>
+            <button class="opt" data-correct="false">No runner at all, since waiting can't speed up</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q4">
+        <div class="q">
+            You want a deployment that keeps running on its schedule after you log
+            out, and can scale to more machines later. What do you use?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A serve() process kept open in the terminal</button>
+            <button class="opt" data-correct="true">A work pool with one or more running workers</button>
+            <button class="opt" data-correct="false">An on_failure hook that relaunches the flow</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q5">
+        <div class="q">
+            A nightly job re-downloads the same unchanged 2&nbsp;GB dataset every
+            run. You want to skip that when the input hasn't changed. What fits?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A retry policy with exponential backoff delays</button>
+            <button class="opt" data-correct="true">A cache_policy of INPUTS with content-hashed args</button>
+            <button class="opt" data-correct="false">A process pool runner over the download tasks</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <h2>How did it go?</h2>
+    <p>
+        Any card you blanked on, or any scenario you missed, points straight at the
+        lesson to revisit — that's the whole value of doing this from memory. The
+        ones that felt effortful are the ones this session just strengthened.
+        Space it out: come back and run these again in a few days, cold.
+    </p>
+
+    <div class="source-box">
+        <span class="label">Revisit by tag</span>
+        <p style="margin: 0.4rem 0 0">
+            <a href="0001-see-your-flow-run.html">L1 states</a> ·
+            <a href="0002-when-things-fail.html">L2 resilience</a> ·
+            <a href="0003-dont-redo-work.html">L3 caching</a> ·
+            <a href="0004-results-and-cos.html">L4 storage</a> ·
+            <a href="0005-on-a-schedule.html">L5 schedules</a> ·
+            <a href="0006-diagnose-a-failure.html">L6 diagnose</a> ·
+            <a href="0007-get-alerted.html">L7 alerts</a> ·
+            <a href="0008-work-pools-and-workers.html">L8 work pools</a> ·
+            <a href="0009-distribute-the-work.html">L9 task runners</a>
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want me to drill the
+        cards you missed harder, generate a fresh shuffled set, or turn any weak spot
+        back into a full lesson? Tell me which <span class="tag">L#</span> tags
+        tripped you up and we'll target them.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/glossary.html">Glossary</a></span>
+        <span style="color: var(--ink-faint)">Come back &amp; redo this cold in a few days ⏳</span>
+    </div>
+</main>
+
+<script>
+    // Recall cards: reveal on click
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // Scenario quizzes (same widget as every other lesson)
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right."
+                    : "✗ Not quite — the highlighted answer is correct. Revisit that lesson.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

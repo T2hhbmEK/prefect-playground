@@ -1,0 +1,75 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnosing failed runs — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Diagnosis</p>
+  <h1>Diagnose a failed run</h1>
+  <p class="subtitle">Read run history after the fact — which task broke, why, and when. UI + CLI, copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>First: which state?</h2>
+  <table>
+    <tr><th>State</th><th>Means</th><th>Look in</th></tr>
+    <tr><td><span class="pill failed">Failed</span></td><td>Your code raised an exception</td><td>Your code / the data — read the traceback</td></tr>
+    <tr><td><span class="pill crashed">Crashed</span></td><td>Infra died (OOM, killed, power)</td><td>The machine / process, not your code</td></tr>
+    <tr><td><span class="pill completed">Completed</span></td><td>Succeeded</td><td>—</td></tr>
+  </table>
+  <p class="why"><span class="label">Why state first</span> Failed vs Crashed decides <em>where you even look</em>. A traceback exists for Failed; a Crashed run may have none, because the process vanished before it could report.</p>
+
+  <h2>The CLI workflow</h2>
+  <pre><code># 1. Find the failure
+uv run prefect flow-run ls --state Failed --limit 5
+uv run prefect flow-run ls --flow-name nightly-report      # or by flow
+
+# 2. Inspect state + failure message
+uv run prefect flow-run inspect &lt;flow-run-id&gt;
+
+# 3. Read the full logs / traceback
+uv run prefect flow-run logs &lt;flow-run-id&gt;
+
+# 4. Re-run it once you've fixed the cause
+uv run prefect flow-run retry &lt;flow-run-id&gt;</code></pre>
+
+  <h2><code>prefect flow-run</code> commands</h2>
+  <table>
+    <tr><th>Command</th><th>Use</th></tr>
+    <tr><td><code>ls</code></td><td>List recent runs. Filter: <code>--state Failed</code>, <code>--state-type FAILED</code>, <code>--flow-name &lt;name&gt;</code>, <code>--limit N</code>.</td></tr>
+    <tr><td><code>inspect &lt;id&gt;</code></td><td>Full record of one run: state, message, timing, parameters.</td></tr>
+    <tr><td><code>logs &lt;id&gt;</code></td><td>All log lines for the run — the traceback lives here.</td></tr>
+    <tr><td><code>retry &lt;id&gt;</code></td><td>Re-run a failed (or completed) run.</td></tr>
+    <tr><td><code>watch &lt;id&gt;</code></td><td>Follow a run live until it reaches a terminal state.</td></tr>
+    <tr><td><code>cancel &lt;id&gt;</code> / <code>delete &lt;id&gt;</code></td><td>Stop a run / remove its record.</td></tr>
+  </table>
+
+  <h2>In the UI (localhost:4200)</h2>
+  <table>
+    <tr><th>Where</th><th>What it tells you</th></tr>
+    <tr><td>Flow Runs, filter <span class="pill failed">Failed</span></td><td>Every failed run, newest first.</td></tr>
+    <tr><td>A run's task-run timeline</td><td>Which task failed and how far the pipeline got (Completed tasks before it).</td></tr>
+    <tr><td>The failed task's Logs tab</td><td>The exception and traceback for that task.</td></tr>
+    <tr><td>The run's Parameters / inputs</td><td>The exact inputs that triggered the failure — reproduce it.</td></tr>
+  </table>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Question</th><th>Tool</th></tr>
+    <tr><td>Which runs failed?</td><td><code>flow-run ls --state Failed</code> / UI filter</td></tr>
+    <tr><td>Which task broke?</td><td>UI task-run timeline (red = failed)</td></tr>
+    <tr><td>Why did it break?</td><td><code>flow-run logs &lt;id&gt;</code> → traceback</td></tr>
+    <tr><td>Code bug or infra?</td><td>state: Failed → code · Crashed → infra</td></tr>
+    <tr><td>Re-run after a fix</td><td><code>flow-run retry &lt;id&gt;</code></td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/concepts/states">States</a> and the <a href="https://docs.prefect.io/v3/api-ref/cli">CLI reference</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0006-diagnose-a-failure.html">← Lesson 6: Diagnose a failed run</a></span>
+    <span><a href="resilience-cheatsheet.html">Resilience cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

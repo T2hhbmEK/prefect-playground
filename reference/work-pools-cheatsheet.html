@@ -1,0 +1,79 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work pools &amp; workers — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Work pools &amp; workers</p>
+  <h1>Work pools &amp; workers</h1>
+  <p class="subtitle">Decouple <em>what</em> runs from <em>where</em> it runs. Local process pool, copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>The three pieces</h2>
+  <table>
+    <tr><th>Piece</th><th>Role</th><th>Lives</th></tr>
+    <tr><td><strong>Deployment</strong></td><td>Flow + schedule + parameters, pointed at a pool</td><td>On the server</td></tr>
+    <tr><td><strong>Work pool</strong></td><td>Typed queue scheduled runs land in</td><td>On the server</td></tr>
+    <tr><td><strong>Worker</strong></td><td>Polls a pool, executes the runs</td><td>A process you run</td></tr>
+  </table>
+  <p class="why"><span class="label">deploy() ≠ run</span> <code>deploy()</code> only registers. A triggered run sits <span class="pill scheduled">Scheduled</span> until a <em>worker</em> on that pool picks it up. No worker → nothing executes.</p>
+
+  <h2>End-to-end (process pool, all local)</h2>
+  <pre><code># 1. Create the pool (once)
+uv run prefect work-pool create local-process --type process
+
+# 2. Deploy from local code
+#    (in 08_workers.py)
+worker_pipeline.from_source(
+    source=str(Path(__file__).parent),
+    entrypoint="08_workers.py:worker_pipeline",
+).deploy(name="worker-pipeline", work_pool_name="local-process", cron="0 8 * * *")
+uv run python 08_workers.py        # registers, then exits
+
+# 3. Start a worker (separate terminal, leave running)
+uv run prefect worker start --pool local-process
+
+# 4. Trigger a run (or let cron do it)
+uv run prefect deployment run 'worker-pipeline/worker-pipeline'</code></pre>
+
+  <h2>Work pool CLI</h2>
+  <table>
+    <tr><th>Command</th><th>Use</th></tr>
+    <tr><td><code>work-pool create &lt;n&gt; --type process</code></td><td>Create a pool. Types: <code>process</code> (local), <code>docker</code>, <code>kubernetes</code>, …</td></tr>
+    <tr><td><code>work-pool ls</code></td><td>List pools.</td></tr>
+    <tr><td><code>work-pool inspect &lt;n&gt;</code></td><td>Pool config + default job variables.</td></tr>
+    <tr><td><code>work-pool set-concurrency-limit &lt;n&gt; &lt;N&gt;</code></td><td>Cap simultaneous runs across the pool.</td></tr>
+    <tr><td><code>worker start --pool &lt;n&gt;</code></td><td>Run a worker against the pool. Run several for more throughput.</td></tr>
+  </table>
+
+  <h2>deploy() vs serve()</h2>
+  <table>
+    <tr><th></th><th><code>serve()</code></th><th>work pool + worker</th></tr>
+    <tr><td>Processes</td><td>One does everything</td><td>Server schedules · worker(s) execute</td></tr>
+    <tr><td>Survives closed terminal</td><td>No</td><td>Yes</td></tr>
+    <tr><td>Many deployments / scale</td><td>Awkward</td><td>Natural</td></tr>
+    <tr><td>Code location</td><td>Implicit (same process)</td><td>Explicit via <code>from_source()</code></td></tr>
+    <tr><td>Best for</td><td>Dev, one flow</td><td>Toward production</td></tr>
+  </table>
+
+  <h2>Gotchas</h2>
+  <div class="note">
+    <span class="label">Things that bite</span>
+    <ul style="margin:0.4rem 0 0">
+      <li><strong>No worker running</strong> → runs stay Scheduled. Start <code>worker start --pool …</code>.</li>
+      <li><strong>Worker can't find code</strong> → set <code>from_source(source=…, entrypoint="file.py:flow")</code>. For a local process pool, point it at the project dir.</li>
+      <li><strong>Wrong pool name</strong> → deployment and worker must name the <em>same</em> pool.</li>
+    </ul>
+  </div>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">Deploy via Python</a> and <a href="https://docs.prefect.io/v3/how-to-guides/deployments/store-flow-code">Store flow code</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0008-work-pools-and-workers.html">← Lesson 8: Work pools &amp; workers</a></span>
+    <span><a href="deployments-cheatsheet.html">Deployments cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

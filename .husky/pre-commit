@@ -1,0 +1,4 @@
+# GUI git clients (GitHub Desktop, Tower, IDEs) run hooks with a minimal PATH; prepend common tool dirs so bun/bunx/uv are found.
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+bunx lint-staged

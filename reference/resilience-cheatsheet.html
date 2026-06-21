@@ -1,0 +1,87 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resilience knobs — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Resilience</p>
+  <h1>Retries &amp; Timeouts</h1>
+  <p class="subtitle">Every knob that keeps a transient blip from sinking a run — in one place, copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>The decorator arguments</h2>
+  <table>
+    <tr><th>Argument</th><th>What it does</th></tr>
+    <tr><td><code>retries=N</code></td><td>Re-run the task/flow up to <em>N</em> more times if it raises. Total attempts = <code>N + 1</code>.</td></tr>
+    <tr><td><code>retry_delay_seconds=S</code></td><td>Wait <em>S</em> seconds between attempts. A single number = fixed delay.</td></tr>
+    <tr><td><code>retry_delay_seconds=[1,2,4,8]</code></td><td>A <em>list</em> = a different delay before each attempt.</td></tr>
+    <tr><td><code>retry_delay_seconds=exponential_backoff(backoff_factor=2)</code></td><td>Auto-grow the delay: 2, 4, 8, 16… Import from <code>prefect.tasks</code>.</td></tr>
+    <tr><td><code>retry_condition_fn=fn</code></td><td>A callable that decides <em>per failure</em> whether to retry. Return <code>False</code> to give up immediately.</td></tr>
+    <tr><td><code>timeout_seconds=T</code></td><td>Cancel the run if it exceeds <em>T</em> seconds. Marks it Failed; retries (if any) still apply.</td></tr>
+  </table>
+
+  <h2>Fixed-delay retry</h2>
+  <pre><code>from prefect import task
+
+@task(retries=3, retry_delay_seconds=2)
+def fetch(url):
+    ...  # 4 total attempts, 2s apart</code></pre>
+
+  <h2>Exponential backoff</h2>
+  <pre><code>from prefect import task
+from prefect.tasks import exponential_backoff
+
+@task(retries=4, retry_delay_seconds=exponential_backoff(backoff_factor=2))
+def fetch(url):
+    ...  # waits 2s, 4s, 8s, 16s</code></pre>
+  <p class="why"><span class="label">Why backoff</span> Hammering a struggling service every 2 seconds can keep it down. Backoff gives it room to recover — and is the default expectation of most APIs' rate limits.</p>
+
+  <h2>Don't retry permanent errors</h2>
+  <pre><code>import httpx
+from prefect import task
+
+def retry_handler(task, task_run, state) -&gt; bool:
+    try:
+        state.result()
+    except httpx.HTTPStatusError as exc:
+        # 401/404 won't fix themselves — don't waste attempts
+        return exc.response.status_code not in (401, 404)
+    except httpx.ConnectError:
+        return False
+    return True
+
+@task(retries=3, retry_condition_fn=retry_handler)
+def api_call(url):
+    httpx.get(url).raise_for_status()</code></pre>
+
+  <h2>Timeouts</h2>
+  <pre><code>from prefect import flow
+
+@flow(timeout_seconds=30)
+def pipeline():
+    ...  # killed if it runs longer than 30s</code></pre>
+  <div class="note">
+    <span class="label">Caveat — sync tasks</span>
+    A <code>timeout_seconds</code> on a <em>synchronous, blocking</em> task (e.g. <code>time.sleep</code>) running under the default
+    <code>ThreadPoolTaskRunner</code> may not interrupt mid-call — it only triggers once control returns. Flow-level timeouts and async tasks are reliable. (Out of scope now; revisit with task runners.)
+  </div>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Failure kind</th><th>Right tool</th></tr>
+    <tr><td>Transient (network blip, 503, brief lock)</td><td><code>retries</code> + delay — it'll probably work next time.</td></tr>
+    <tr><td>Permanent (bad auth, 404, bad input)</td><td><code>retry_condition_fn</code> returns <code>False</code> — fail fast, retries are wasted.</td></tr>
+    <tr><td>Hung / never returns</td><td><code>timeout_seconds</code> — cap it so it can't run forever.</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/workflows/retries">Configure retries</a> and <a href="https://docs.prefect.io/v3/how-to-guides/workflows/write-and-run">Write &amp; run workflows</a> (timeouts).</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0002-when-things-fail.html">← Lesson 2: When things fail</a></span>
+    <span><a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

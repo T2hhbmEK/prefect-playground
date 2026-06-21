@@ -1,0 +1,27 @@
+{
+  "name": "prefect-playground",
+  "private": true,
+  "scripts": {
+    "lint": "bun run lint:md && bun run lint:py",
+    "lint:md": "markdownlint-cli2",
+    "lint:md:fix": "markdownlint-cli2 --fix",
+    "lint:py": "uv run ruff check . && uv run ruff format --check .",
+    "lint:py:fix": "uv run ruff check --fix . && uv run ruff format .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.md": "markdownlint-cli2",
+    "*.py": [
+      "uv run ruff check",
+      "uv run ruff format --check"
+    ]
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "markdownlint-cli2": "^0.22.1"
+  }
+}

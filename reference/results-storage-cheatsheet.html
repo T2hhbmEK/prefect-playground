@@ -1,0 +1,112 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results &amp; storage — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Results &amp; storage</p>
+  <h1>Results &amp; object storage</h1>
+  <p class="subtitle">Caching big artifacts to S3-compatible object storage (incl. Tencent COS) — every knob in one place.</p>
+</header>
+
+<main>
+  <h2>The golden rule</h2>
+  <div class="why"><span class="label">Cache the pointer, store the payload</span> Prefect caches a task's <em>return value</em>. For a big artifact (mp4, model, Parquet), upload it yourself and <strong>return its key</strong> — never the bytes. <code>result_storage</code> holds the return value; your own upload puts the file in COS. Two separate jobs.</div>
+
+  <h2>The decorator arguments</h2>
+  <table>
+    <tr><th>Argument</th><th>What it does</th></tr>
+    <tr><td><code>result_storage=&lt;block&gt;</code></td><td>Where Prefect writes the (small) return value. A storage block, or its slug e.g. <code>"s3-bucket/cos-video-bucket"</code>. Inherited by tasks from the flow if unset.</td></tr>
+    <tr><td><code>persist_result=True</code></td><td>Force results to disk/object store so they survive the process. Setting a <code>cache_policy</code> turns this on for you.</td></tr>
+    <tr><td><code>result_storage_key="..."</code></td><td>Deterministic name for the stored result (templatable).</td></tr>
+    <tr><td><code>cache_policy=INPUTS</code></td><td>Key the cache on the task's args. Same args across runs ⇒ <span class="pill cached">Cached</span>. (See <a href="caching-cheatsheet.html">caching cheatsheet</a>.)</td></tr>
+  </table>
+
+  <h2>The artifact pattern</h2>
+  <pre><code>import hashlib
+from pathlib import Path
+from prefect import task
+from prefect.cache_policies import INPUTS
+from prefect_aws import S3Bucket
+
+cos = S3Bucket.load("cos-video-bucket")   # saved earlier
+
+def content_hash(path: Path) -&gt; str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+@task(cache_policy=INPUTS, result_storage=cos)
+def encode_video(src_hash: str, preset: str = "h264-1080p") -&gt; str:
+    out_key = f"encoded/{src_hash}/{preset}.mp4"
+    local_mp4 = run_ffmpeg(...)                 # transcode -&gt; local file
+    cos.upload_from_path(local_mp4, out_key)    # the artifact upload
+    return out_key                              # the small string Prefect caches</code></pre>
+  <p class="why"><span class="label">Key on content, not name</span> Pass a <strong>content hash</strong> + <strong>preset</strong> to the task, not a file path. A path-keyed cache returns a stale encode when the bytes change and a wrong one when the preset changes.</p>
+
+  <h2>Local MinIO block (for learning locally)</h2>
+  <p>MinIO is an S3-compatible store you run yourself: <code>docker compose up -d</code> (console at <a href="http://localhost:9001">:9001</a>). Use <code>MinIOCredentials</code>.</p>
+  <pre><code>from prefect_aws import MinIOCredentials, AwsClientParameters, S3Bucket
+
+cos = S3Bucket(
+    bucket_name="prefect-artifacts",
+    credentials=MinIOCredentials(
+        minio_root_user="minioadmin",
+        minio_root_password="minioadmin",
+        aws_client_parameters=AwsClientParameters(endpoint_url="http://localhost:9000"),
+    ),
+)
+cos.save("minio-artifacts", overwrite=True)</code></pre>
+  <p class="why"><span class="label">MinIO ⇄ COS is a credentials swap</span> Both are S3-compatible, so the task code (<code>upload_from_path</code>, <code>result_storage=cos</code>) is identical. Only the block changes: <code>MinIOCredentials</code> + <code>localhost:9000</code> ⟶ <code>AwsCredentials</code> + the COS endpoint below.</p>
+
+  <h2>Tencent COS block (verified vs. prefect-aws)</h2>
+  <pre><code>from prefect_aws import AwsCredentials, AwsClientParameters, S3Bucket
+
+cos = S3Bucket(
+    bucket_name="videos-1250000000",          # name MUST include your APPID
+    credentials=AwsCredentials(
+        aws_access_key_id="&lt;SecretId&gt;",        # Tencent CAM SecretId
+        aws_secret_access_key="&lt;SecretKey&gt;",   # Tencent CAM SecretKey
+        region_name="ap-guangzhou",
+        aws_client_parameters=AwsClientParameters(
+            endpoint_url="https://cos.ap-guangzhou.myqcloud.com",
+        ),
+    ),
+)
+cos.save("cos-video-bucket", overwrite=True)</code></pre>
+  <table>
+    <tr><th>COS thing</th><th>Maps to</th></tr>
+    <tr><td>Bucket name</td><td><code>&lt;name&gt;-&lt;APPID&gt;</code>, e.g. <code>videos-1250000000</code> — APPID is required</td></tr>
+    <tr><td>Endpoint</td><td><code>https://cos.&lt;region&gt;.myqcloud.com</code> (regions: <code>ap-guangzhou</code>, <code>ap-shanghai</code>, <code>ap-hongkong</code>, <code>na-siliconvalley</code>, …)</td></tr>
+    <tr><td>SecretId / SecretKey</td><td><code>aws_access_key_id</code> / <code>aws_secret_access_key</code></td></tr>
+  </table>
+
+  <h2>S3Bucket I/O methods</h2>
+  <table>
+    <tr><th>Method</th><th>Use</th></tr>
+    <tr><td><code>upload_from_path(local, key)</code></td><td>Upload a local file to the bucket.</td></tr>
+    <tr><td><code>download_object_to_path(key, local)</code></td><td>Download an object to a local file.</td></tr>
+    <tr><td><code>read_path(key)</code> / <code>write_path(key, bytes)</code></td><td>Read/write raw bytes by key. <code>read_path</code> doubles as an existence check.</td></tr>
+    <tr><td><code>aupload_from_path</code>, <code>aread_path</code>, …</td><td><code>a</code>-prefixed = async variants.</td></tr>
+  </table>
+
+  <h2>The stale-pointer gotcha</h2>
+  <div class="note"><span class="label">Cache hit ≠ object exists</span> Prefect decides a hit from <em>its own result record</em>, not from COS. Delete the mp4 but keep the cache record ⇒ a hit returns a dangling key. Defend with an existence check (<code>read_path</code>/HEAD ⇒ re-encode if gone), or align <code>cache_expiration</code> with your COS lifecycle rule.</div>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Want</th><th>Right tool</th></tr>
+    <tr><td>Store a small return value remotely</td><td><code>result_storage=&lt;block&gt;</code></td></tr>
+    <tr><td>Skip re-encoding identical input</td><td><code>cache_policy=INPUTS</code> + content-hash arg</td></tr>
+    <tr><td>Put the actual mp4 in COS</td><td>your own <code>cos.upload_from_path(...)</code></td></tr>
+    <tr><td>Survive a deleted artifact</td><td>existence check ⇒ fall through to re-encode</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/advanced/results">Results &amp; persistence</a> and <a href="https://docs.prefect.io/v3/how-to-guides/workflows/cache-workflow-steps">Cache workflow steps</a>. COS-specific "is this idiomatic?" → <a href="https://prefect.io/slack">Prefect Slack</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0004-results-and-cos.html">← Lesson 4: Cache big artifacts in COS</a></span>
+    <span><a href="caching-cheatsheet.html">Caching cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

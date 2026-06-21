@@ -1,0 +1,186 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 9 — Distribute the work</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 9 · Parallelism</p>
+    <h1>Distribute the work</h1>
+    <p class="subtitle">
+        Lesson 8 spread <em>flow runs</em> across workers. This is the other axis:
+        spreading the <em>tasks inside one run</em> so they don't crawl through one
+        at a time. One decorator argument turns a sequence of waits into an overlap —
+        and, for heavy compute, onto multiple cores.
+    </p>
+</header>
+
+<main>
+    <p>
+        Work pools answer "<em>where</em> does the run execute?"
+        (<a href="0008-work-pools-and-workers.html">L8</a>). <strong>Task runners</strong>
+        answer a different question: "<em>how</em> do the tasks <em>within</em> one
+        run spread out?" This lesson's win: <strong>take a batch of mapped tasks and
+        watch them run together instead of one-by-one — and learn which runner fits
+        which work.</strong>
+    </p>
+
+    <h2>1 · The runner only acts on submitted tasks</h2>
+    <p>
+        A task runner governs tasks you <code>.submit()</code> or <code>.map()</code>.
+        Plain calls stay strictly sequential no matter which runner you pick — that's
+        the first thing people miss.
+    </p>
+    <pre><code>from prefect.task_runners import ThreadPoolTaskRunner
+
+@flow(task_runner=ThreadPoolTaskRunner(max_workers=4))
+def fetch_all():
+    return fetch.map(range(4)).result()   # .map → these run together
+    # fetch(0); fetch(1); ...             # plain calls → still one at a time</code></pre>
+    <p>
+        The default runner is already <code>ThreadPoolTaskRunner</code> — so your
+        <code>.map()</code> in <a href="0001-see-your-flow-run.html">Lesson 1</a> has
+        been running tasks concurrently all along.
+    </p>
+
+    <h2>2 · Threads vs processes — run it</h2>
+    <p>
+        <code>09_task_runners.py</code> is in your repo. It times the same batch of
+        four tasks under two runners, for two kinds of work:
+    </p>
+    <pre><code>uv run python 09_task_runners.py</code></pre>
+    <pre><code>4x fetch  (I/O) ThreadPool : 1.1s  # ~2s sequential
+4x crunch (CPU) ThreadPool : 4.2s  # GIL: no speedup
+4x crunch (CPU) ProcessPool: 2.4s  # real parallelism</code></pre>
+    <p>Two lessons in three numbers:</p>
+    <ul>
+        <li><strong>I/O-bound work loves threads.</strong> Four half-second
+            <em>waits</em> overlap into ~1s instead of ~2s. While one task waits on
+            the network, the others proceed.</li>
+        <li><strong>CPU-bound work doesn't.</strong> Four heavy loops on threads take
+            <em>longer</em> than one (4.2s) — Python's GIL lets only one thread
+            actually compute at a time. Switch to
+            <code>ProcessPoolTaskRunner</code> and they run on separate cores: 2.4s.</li>
+    </ul>
+
+    <h2>3 · Why threads can't help CPU work</h2>
+    <div class="why">
+        <span class="label">The GIL, in one line</span>
+        CPython runs only one thread of Python bytecode at a time (the Global
+        Interpreter Lock). Threads still win for I/O because a <em>waiting</em> task
+        releases the GIL — but a task that's <em>computing</em> holds it, so threads
+        take turns. Only separate <em>processes</em> have their own interpreter, and
+        their own core.
+    </div>
+
+    <h2>4 · …but processes aren't free</h2>
+    <p>
+        Don't reach for <code>ProcessPoolTaskRunner</code> by reflex. Each process
+        must be spawned and each task's inputs/outputs pickled across the boundary —
+        real overhead. For <em>light</em> CPU tasks that overhead can make processes
+        <strong>slower</strong> than threads. Processes only pay off when each task
+        does enough heavy computation to dwarf the startup cost. Measure, like the
+        script does.
+    </p>
+    <table>
+        <tr><th>Your tasks are mostly…</th><th>Use</th><th>Why</th></tr>
+        <tr><td>Waiting (network, disk, DB)</td><td><code>ThreadPoolTaskRunner</code></td><td>Waits overlap; near-zero overhead</td></tr>
+        <tr><td>Heavy pure-Python compute</td><td><code>ProcessPoolTaskRunner</code></td><td>True multi-core parallelism</td></tr>
+        <tr><td>Light / quick</td><td>Default threads</td><td>Process overhead isn't worth it</td></tr>
+    </table>
+    <p>
+        Both knobs sit on the <a href="../reference/task-runners-cheatsheet.html">task
+        runners cheatsheet</a>. (Cluster runners — Dask/Ray — are deliberately
+        <a href="../MISSION.md">out of scope</a> for now; thread/process first.)
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You set a task runner but call your tasks the normal way (no
+            <code>.map</code>/<code>.submit</code>). What happens?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">They still run one at a time, sequentially</button>
+            <button class="opt" data-correct="false">They run in parallel on the runner anyway</button>
+            <button class="opt" data-correct="false">Prefect raises an error about the runner</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            A flow maps a heavy, pure-Python <em>compute</em> task over a big list.
+            Which runner actually makes it faster?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">The ThreadPoolTaskRunner across many threads</button>
+            <button class="opt" data-correct="true">The ProcessPoolTaskRunner across many cores</button>
+            <button class="opt" data-correct="false">Neither one, because the GIL blocks both</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            Your tasks each just <code>GET</code> a URL and wait on the response.
+            Which runner is the right default?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">The ThreadPoolTaskRunner overlapping the waits</button>
+            <button class="opt" data-correct="false">The ProcessPoolTaskRunner for the parallelism</button>
+            <button class="opt" data-correct="false">No runner, since waiting cannot be sped up</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/workflows/run-work-concurrently">Run tasks concurrently</a>
+            and the
+            <a href="https://docs.prefect.io/v3/api-ref/python/prefect-task_runners">task runners API</a>.
+            For the GIL itself, the Python docs on threading vs multiprocessing.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to tune
+        <code>max_workers</code>, mix a task runner (how a run spreads) with a work
+        pool (where it runs) from <a href="0008-work-pools-and-workers.html">L8</a>,
+        or see why <code>async</code> tasks change this picture? Curious when Dask/Ray
+        would finally earn their place? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/task-runners-cheatsheet.html">Task runners cheatsheet →</a></span>
+        <span><a href="0010-review-and-retrieve.html">Next: Lesson 10 — review &amp; retrieve →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. Match the runner to the kind of work."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

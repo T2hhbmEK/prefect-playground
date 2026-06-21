@@ -1,0 +1,24 @@
+# markdownlint-cli2 config. Rules live under `config:`.
+
+# Files to lint (so `markdownlint-cli2` can run with no args).
+globs:
+  - "**/*.md"
+
+# Skip dependency dirs etc. by honoring .gitignore, plus explicit ignores.
+gitignore: true
+ignores:
+  # Symlink to AGENTS.md — linted there, skip the duplicate.
+  - "CLAUDE.md"
+
+config:
+  # Base on the default rule set, overriding only where noted.
+  default: true
+  # MD013 line-length: prose wrapping is noisy for docs; disable.
+  MD013: false
+  # MD024 no-duplicate-headings: allow same heading text under different parents.
+  MD024:
+    siblings_only: true
+  # MD033 inline HTML: allowed (occasionally needed in README/docs).
+  MD033: false
+  # MD041 first-line-heading: allowed to not be H1 (e.g. badges first).
+  MD041: false

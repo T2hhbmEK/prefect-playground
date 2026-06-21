@@ -1,0 +1,195 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 6 — Diagnose a failed run</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 6 · Observability</p>
+    <h1>Diagnose a failed run</h1>
+    <p class="subtitle">
+        It's 9am. A scheduled run failed at 3am while you slept. With a
+        <code>cron</code> + <code>print()</code> setup you'd be squinting at log
+        files. With Prefect, the run is sitting in history with its state, its
+        logs, and the exact line that blew up — waiting for you.
+    </p>
+</header>
+
+<main>
+    <p>
+        This is the last of the four mission goals: <em>read run history after the
+        fact to work out why a past run failed</em>. You've scheduled a flow
+        (<a href="0005-on-a-schedule.html">L5</a>) — now you need to debug one
+        without re-running it. This lesson's win: <strong>take a run that already
+        failed and pin down which task broke, why, and when — entirely from
+        history.</strong>
+    </p>
+
+    <h2>1 · Make a run fail (on purpose)</h2>
+    <p>
+        <code>06_diagnose.py</code> is in your repo: it fetches two rows, then a
+        <code>validate</code> task chokes on a row with a missing amount. That's a
+        <em>permanent</em> failure — bad input, not a transient blip
+        (<a href="0002-when-things-fail.html">L2</a>), so no retry would save it.
+        Run it once to create the failed run:
+    </p>
+    <pre><code>uv run python 06_diagnose.py     # exits with the flow in a Failed state</code></pre>
+    <p>
+        Now pretend you didn't see that terminal output — it ran at 3am. Everything
+        below works purely from what Prefect <em>recorded</em>.
+    </p>
+
+    <h2>2 · Find the failure in the UI</h2>
+    <p>
+        Open <a href="http://localhost:4200">localhost:4200</a> → <strong>Flow
+        Runs</strong>, and filter by state <span class="pill failed">Failed</span>.
+        There's <code>nightly-report</code>. Click it and you get the payoff cron
+        never gave you:
+    </p>
+    <ul>
+        <li>A <strong>timeline of task runs</strong> — <code>fetch_batch</code>
+            <span class="pill completed">Completed</span>, then
+            <code>validate</code> <span class="pill failed">Failed</span>. You can
+            <em>see</em> exactly how far the pipeline got.</li>
+        <li>The failed task's <strong>logs</strong>, including the traceback and the
+            line <code>ValueError: row 2 has no amount</code>.</li>
+        <li>Timestamps, inputs, and the run's parameters — the full context of that
+            one execution.</li>
+    </ul>
+    <p>
+        Recall the state vocabulary from <a href="../reference/glossary.html">the
+        glossary</a>: this is <span class="pill failed">Failed</span> (your code
+        raised), not <span class="pill crashed">Crashed</span> (the machine died).
+        That tells you to look in <em>your code</em>, not your infrastructure.<a class="cite" href="https://docs.prefect.io/v3/concepts/states">1</a>
+    </p>
+
+    <h2>3 · Same diagnosis from the CLI</h2>
+    <p>
+        When you don't want to leave the terminal, the
+        <code>prefect flow-run</code> commands read the same history.<a class="cite" href="https://docs.prefect.io/v3/api-ref/cli">2</a>
+        Start by listing just the failures:
+    </p>
+    <pre><code>uv run prefect flow-run ls --state Failed --limit 5</code></pre>
+    <pre><code>┃  ID                              ┃ Flow         ┃ Name          ┃ State  ┃
+│  d9975666-dff5-4271-…            │ nightly-rep… │ subtle-chinch… │ Failed │</code></pre>
+    <p>
+        Copy the ID, then <code>inspect</code> it for the state and the failure
+        message, or pull the full <code>logs</code>:
+    </p>
+    <pre><code>uv run prefect flow-run inspect d9975666-dff5-4271-b2db-5ceba26fbc8f
+uv run prefect flow-run logs    d9975666-dff5-4271-b2db-5ceba26fbc8f</code></pre>
+    <pre><code>state=State(type=StateType.FAILED,
+    message='Flow run encountered an exception: ValueError: row 2 has no amount')
+...
+ERROR | Flow run 'subtle-chinchilla' - Task run failed with exception:
+       ValueError('row 2 has no amount')</code></pre>
+    <p>
+        Same smoking gun as the UI: <code>validate</code> failed on row 2. You
+        diagnosed a 3am failure at 9am without re-running a thing.
+    </p>
+
+    <h2>4 · Once you know the fix</h2>
+    <p>
+        Found and fixed the bad data? You don't have to wait for the next schedule —
+        replay the same run:<a class="cite" href="https://docs.prefect.io/v3/api-ref/cli">2</a>
+    </p>
+    <pre><code>uv run prefect flow-run retry d9975666-dff5-4271-b2db-5ceba26fbc8f</code></pre>
+    <div class="note">
+        <span class="label">The four diagnosis tools</span>
+        <code>ls&nbsp;--state&nbsp;Failed</code> (find it),
+        <code>inspect</code> (state &amp; message),
+        <code>logs</code> (the traceback),
+        <code>retry</code> (re-run once fixed). They're on the
+        <a href="../reference/diagnosis-cheatsheet.html">diagnosis cheatsheet</a>.
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            A scheduled run failed overnight. Which command lists <em>only</em> the
+            runs that failed, so you can find it fast?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Use prefect flow-run watch on the run</button>
+            <button class="opt" data-correct="true">Use prefect flow-run ls state Failed</button>
+            <button class="opt" data-correct="false">Use prefect flow-run retry on the run</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            The run's state is <span class="pill failed">Failed</span>, not
+            <span class="pill crashed">Crashed</span>. Where should you look first?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">In your own code that raised it</button>
+            <button class="opt" data-correct="false">In the host machine or its memory</button>
+            <button class="opt" data-correct="false">In the network between the nodes</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            You found the failing task and want the exact exception and traceback
+            for that one run. Which command shows it?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">The prefect deployment ls command</button>
+            <button class="opt" data-correct="true">The prefect flow-run logs command</button>
+            <button class="opt" data-correct="false">The prefect flow-run cancel command</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/concepts/states">States</a>
+            (what Failed vs Crashed mean) and the
+            <a href="https://docs.prefect.io/v3/api-ref/cli">CLI reference</a>
+            (<code>flow-run inspect / logs / ls / retry</code>).
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to get
+        <em>alerted</em> when a run fails (Automations + notification blocks),
+        inspect a specific failed <em>task</em> run, or filter history by tag or
+        time window? Curious why a flow can be <span class="pill crashed">Crashed</span>
+        rather than Failed? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/diagnosis-cheatsheet.html">Diagnosis cheatsheet →</a></span>
+        <span><a href="0007-get-alerted.html">Next: Lesson 7 — get alerted when it breaks →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. The history had the answer all along."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

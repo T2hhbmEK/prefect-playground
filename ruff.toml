@@ -1,0 +1,26 @@
+# Ruff configuration — https://docs.astral.sh/ruff/configuration/
+# Run: `uv run ruff check .` (lint) and `uv run ruff format .` (format),
+# or via `bun run lint:py` / `bun run lint:py:fix`.
+
+target-version = "py313"
+line-length = 88
+
+[lint]
+# Curated best-practice rule set. See https://docs.astral.sh/ruff/rules/ for codes.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes (undefined names, unused imports, …)
+    "I",    # isort (import sorting)
+    "UP",   # pyupgrade (modernize syntax for the target version)
+    "B",    # flake8-bugbear (likely bugs & footguns)
+    "C4",   # flake8-comprehensions (cleaner comprehensions)
+    "SIM",  # flake8-simplify (simplifiable code)
+    "PIE",  # flake8-pie (misc. lints)
+    "PTH",  # flake8-use-pathlib (prefer pathlib over os.path)
+    "RUF",  # Ruff-specific rules
+]
+
+[format]
+# Also reformat code examples embedded in docstrings.
+docstring-code-format = true

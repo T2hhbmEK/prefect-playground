@@ -1,0 +1,17 @@
+[project]
+name = "prefect-playground"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "prefect[aws,redis]==3.7.5.dev4",
+]
+
+[tool.prefect.server]
+analytics_enabled = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.17",
+]

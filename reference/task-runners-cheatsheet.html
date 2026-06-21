@@ -1,0 +1,74 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task runners — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Task runners</p>
+  <h1>Task runners</h1>
+  <p class="subtitle">How the tasks <em>within one flow run</em> spread out. Thread vs process, copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>Two axes — don't confuse them</h2>
+  <table>
+    <tr><th></th><th>Task runner</th><th>Work pool + worker</th></tr>
+    <tr><td>Distributes</td><td>task runs <em>within</em> one flow run</td><td>whole flow runs</td></tr>
+    <tr><td>Set in</td><td>flow code: <code>@flow(task_runner=…)</code></td><td>deployment: <code>work_pool_name=</code></td></tr>
+    <tr><td>Scales</td><td>one run's tasks across cores</td><td>many runs across machines</td></tr>
+  </table>
+  <p>See the <a href="work-pools-cheatsheet.html">work pools cheatsheet</a> for the other axis. They compose.</p>
+
+  <h2>The rule that bites first</h2>
+  <div class="why"><span class="label">Only .submit() / .map() use the runner</span> Plain task calls run sequentially regardless of <code>task_runner</code>. To get concurrency you must submit work: <code>my_task.map(items)</code> or <code>my_task.submit(x)</code>.</div>
+
+  <h2>The two built-in runners</h2>
+  <table>
+    <tr><th>Runner</th><th>Gives</th><th>Best for</th></tr>
+    <tr><td><code>ThreadPoolTaskRunner</code> (default)</td><td>Concurrency (one process, many threads)</td><td><strong>I/O-bound</strong>: network, disk, DB waits</td></tr>
+    <tr><td><code>ProcessPoolTaskRunner</code></td><td>True parallelism (many processes, many cores)</td><td><strong>CPU-bound</strong> &amp; heavy enough to amortize overhead</td></tr>
+  </table>
+  <p><code>ConcurrentTaskRunner</code> also exists (async-focused concurrency). Cluster runners <code>DaskTaskRunner</code> / <code>RayTaskRunner</code> (separate installs) are out of scope for now.</p>
+
+  <h2>Usage</h2>
+  <pre><code>from prefect import flow, task
+from prefect.task_runners import ThreadPoolTaskRunner, ProcessPoolTaskRunner
+
+@flow(task_runner=ThreadPoolTaskRunner(max_workers=8))   # I/O-bound
+def fetch_all():
+    return fetch.map(sources).result()
+
+@flow(task_runner=ProcessPoolTaskRunner(max_workers=4))  # heavy CPU
+def crunch_all():
+    return crunch.map(chunks).result()</code></pre>
+
+  <h2>Why threads don't speed up CPU work</h2>
+  <p>CPython's GIL lets only one thread run Python bytecode at a time. A <em>waiting</em> task releases the GIL (so threads overlap I/O), but a <em>computing</em> task holds it (so threads take turns). Separate processes each have their own interpreter and core.</p>
+
+  <h2>Measured (12-core Mac, 4 tasks)</h2>
+  <table>
+    <tr><th>Work</th><th>ThreadPool</th><th>ProcessPool</th></tr>
+    <tr><td>I/O: 4 × <code>sleep(0.5)</code></td><td><strong>1.1s</strong> (vs ~2s sequential)</td><td>—</td></tr>
+    <tr><td>CPU: 4 × 40M-loop</td><td>4.2s (GIL serializes)</td><td><strong>2.4s</strong> (parallel)</td></tr>
+    <tr><td>CPU: 4 × tiny loop</td><td><strong>fast</strong></td><td>slower (spawn/pickle overhead)</td></tr>
+  </table>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Tasks mostly…</th><th>Runner</th></tr>
+    <tr><td>Wait on I/O</td><td><code>ThreadPoolTaskRunner</code> (default)</td></tr>
+    <tr><td>Heavy CPU compute</td><td><code>ProcessPoolTaskRunner</code></td></tr>
+    <tr><td>Light/quick</td><td>Default threads — don't pay for processes</td></tr>
+    <tr><td>Not submitted (<code>.map</code>/<code>.submit</code>)</td><td>None — runs sequentially</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/workflows/run-work-concurrently">Run tasks concurrently</a> and the <a href="https://docs.prefect.io/v3/api-ref/python/prefect-task_runners">task runners API</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0009-distribute-the-work.html">← Lesson 9: Distribute the work</a></span>
+    <span><a href="work-pools-cheatsheet.html">Work pools cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

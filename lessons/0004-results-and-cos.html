@@ -1,0 +1,275 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 4 — Cache big artifacts in COS</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 4 · Results &amp; storage</p>
+    <h1>Cache big artifacts in object storage</h1>
+    <p class="subtitle">
+        An encoded mp4 is megabytes, not an integer. You don't want to stuff it
+        into Prefect's result store — you want it in object storage, and you want
+        Prefect to remember "I already encoded this, here's where it is" so it
+        never transcodes the same video twice. We'll do it on a local
+        <strong>MinIO</strong> store, then point the same code at Tencent COS.
+    </p>
+</header>
+
+<main>
+    <p>
+        <a href="0003-dont-redo-work.html">Lesson 3</a> cached a tiny dict on your
+        laptop. Real pipelines produce <em>big</em> outputs — a transcoded video,
+        a trained model, a Parquet export — and run on more than one machine. This
+        lesson's win: <strong>encode a video once, store the mp4 in a local
+        S3-compatible object store (MinIO), and watch the second run come back
+        <span class="pill cached">Cached</span> without re-encoding.</strong>
+        MinIO speaks S3, so moving to Tencent COS later is a credentials swap —
+        not a rewrite.
+    </p>
+
+    <h2>1 · The decision that matters: what gets stored?</h2>
+    <p>
+        Prefect caching stores a task's <em>return value</em> in its result
+        store.<a class="cite" href="https://docs.prefect.io/v3/advanced/results">1</a>
+        So the question is: what should <code>encode_video</code> return?
+    </p>
+    <table>
+        <tr><th>Approach</th><th>What's cached</th><th>Verdict</th></tr>
+        <tr>
+            <td>Return the mp4 <em>bytes</em></td>
+            <td>The whole video, serialized into the result store</td>
+            <td>✗ Fights the serializer, bloats storage, loses the <code>.mp4</code> content-type</td>
+        </tr>
+        <tr>
+            <td>Upload the mp4 yourself, return its <em>key</em></td>
+            <td>A short string like <code>encoded/&lt;hash&gt;/1080p.mp4</code></td>
+            <td>✓ The video lives in COS as a real object; Prefect caches a cheap pointer</td>
+        </tr>
+    </table>
+    <div class="why">
+        <span class="label">The mental correction</span>
+        <code>result_storage</code> stores the <em>return value</em> — not your big
+        file. The mp4 lands in COS because <strong>your code uploads it there</strong>.
+        Prefect just caches the key and skips the re-encode. Keep these two jobs
+        separate in your head and the rest is easy.
+    </div>
+
+    <h2>2 · Key on content, not filename</h2>
+    <p>
+        Recall from Lesson 3: <code>cache_policy=INPUTS</code> keys on the task's
+        <em>arguments</em>.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/cache-workflow-steps">2</a>
+        So pass a <strong>content hash</strong> of the source plus the
+        <strong>preset</strong> — never just a path. A path-keyed cache hands back
+        a stale encode when the file changes; a content hash busts the cache
+        exactly when the bytes change, and the preset busts it when you re-encode
+        at a new resolution.
+    </p>
+    <pre><code>import hashlib
+from pathlib import Path
+from prefect import task
+from prefect.cache_policies import INPUTS
+
+def content_hash(path: Path) -&gt; str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+@task(cache_policy=INPUTS)
+def encode_video(src_hash: str, preset: str = "h264-1080p") -&gt; str:
+    out_key = f"encoded/{src_hash}/{preset}.mp4"
+    # ... ffmpeg transcode -&gt; upload to COS ...
+    return out_key          # the small string Prefect caches</code></pre>
+
+    <h2>3 · Spin up local object storage (MinIO)</h2>
+    <p>
+        <strong>MinIO</strong> is an S3-compatible object store you run on your own
+        machine — perfect for learning locally before you touch a cloud account.
+        A <code>docker-compose.yml</code> is in your repo; it starts MinIO and
+        creates the <code>prefect-artifacts</code> bucket:
+    </p>
+    <pre><code>docker compose up -d        # MinIO on :9000, web console on :9001</code></pre>
+    <p>
+        Browse <a href="http://localhost:9001">localhost:9001</a> (login
+        <code>minioadmin</code> / <code>minioadmin</code>) — that's your object
+        store's UI, where the encoded mp4 will appear.
+    </p>
+    <p>
+        Prefect talks to it through an <code>S3Bucket</code>
+        <em>storage block</em> (from <code>prefect-aws</code>, already installed via
+        the <code>prefect[aws]</code> extra).<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/cache-workflow-steps">2</a>
+        MinIO has its own credentials class:
+    </p>
+    <pre><code>from prefect_aws import MinIOCredentials, AwsClientParameters, S3Bucket
+
+cos = S3Bucket(
+    bucket_name="prefect-artifacts",
+    credentials=MinIOCredentials(
+        minio_root_user="minioadmin",
+        minio_root_password="minioadmin",
+        aws_client_parameters=AwsClientParameters(endpoint_url="http://localhost:9000"),
+    ),
+)
+cos.save("minio-artifacts", overwrite=True)   # save once; later: S3Bucket.load("minio-artifacts")</code></pre>
+
+    <h2>4 · Run it and watch the cache</h2>
+    <p>
+        <code>04_results_storage.py</code> is in your repo — it builds that block,
+        encodes a (fake) video, uploads it to MinIO, and returns the key. With the
+        Prefect server <em>and</em> MinIO running:
+    </p>
+    <pre><code>uv run python 04_results_storage.py     # run it twice</code></pre>
+    <p>
+        Run 1 prints <code>encoding … (slow)</code>, finishes
+        <span class="pill completed">Completed</span>, and the mp4 shows up in the
+        MinIO console under <code>encoded/&lt;hash&gt;/</code>. Run 2 prints <em>no</em>
+        encode line, returns the same key, and the task is
+        <span class="pill cached">Cached</span> — the encode <em>and</em> the upload
+        were skipped across a separate process, because <code>INPUTS</code>
+        persists results between runs (the <code>RUN_ID</code> gotcha from
+        <a href="0003-dont-redo-work.html">Lesson 3</a>). The task itself is just:
+    </p>
+    <pre><code>@task(cache_policy=INPUTS, result_storage=cos)
+def encode_video(src_hash, preset="h264-1080p"):
+    out_key = f"encoded/{src_hash}/{preset}.mp4"
+    local_mp4 = run_ffmpeg(...)                # your transcode -&gt; local file
+    cos.upload_from_path(local_mp4, out_key)   # the artifact upload
+    return out_key                             # the small string Prefect caches</code></pre>
+
+    <h2>5 · Same code, real Tencent COS</h2>
+    <p>
+        This is the payoff of S3-compatibility: to go from MinIO to Tencent COS,
+        you change <em>only the block</em> — the task code is untouched. Swap
+        <code>MinIOCredentials</code> for <code>AwsCredentials</code> and point it
+        at the COS endpoint:<a class="cite" href="https://docs.prefect.io/v3/advanced/results">1</a>
+    </p>
+    <pre><code>from prefect_aws import AwsCredentials, AwsClientParameters, S3Bucket
+
+cos = S3Bucket(
+    bucket_name="videos-1250000000",          # Tencent: name MUST include your APPID
+    credentials=AwsCredentials(
+        aws_access_key_id="&lt;SecretId&gt;",        # from Tencent CAM
+        aws_secret_access_key="&lt;SecretKey&gt;",
+        region_name="ap-guangzhou",
+        aws_client_parameters=AwsClientParameters(
+            endpoint_url="https://cos.ap-guangzhou.myqcloud.com",
+        ),
+    ),
+)
+cos.save("minio-artifacts", overwrite=True)   # reuse the block name; code that loads it doesn't change</code></pre>
+    <div class="note">
+        <span class="label">Tencent COS specifics (verified against prefect-aws)</span>
+        Three things that trip people up: the <strong>bucket name carries your
+        <code>APPID</code></strong> (<code>videos-1250000000</code>, not
+        <code>videos</code>); the <strong>endpoint</strong> is
+        <code>https://cos.&lt;region&gt;.myqcloud.com</code>; and Tencent's
+        <strong>SecretId / SecretKey</strong> map onto
+        <code>aws_access_key_id</code> / <code>aws_secret_access_key</code>.
+    </div>
+
+    <h2>6 · The gotcha before you ship</h2>
+    <p>
+        Prefect decides a cache <em>hit</em> from <strong>its own result record</strong>,
+        not from whether the stored object still exists. If a lifecycle rule or a
+        teammate deletes the mp4 but the cache record survives, the task "hits" and
+        returns a <strong>pointer to a missing file</strong>. Two defenses:
+    </p>
+    <ul>
+        <li>Guard with an existence check (<code>cos.read_path</code> / a HEAD) and
+            fall through to re-encode if the object is gone.</li>
+        <li>Align <code>cache_expiration</code> with your COS lifecycle policy so
+            they expire together.</li>
+    </ul>
+    <p>
+        It all lives on the
+        <a href="../reference/results-storage-cheatsheet.html">results &amp; storage cheatsheet</a>.
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            Your task transcodes a 200&nbsp;MB video. What should it
+            <em>return</em> so caching stays cheap and sane?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">The raw encoded mp4 bytes themselves</button>
+            <button class="opt" data-correct="true">The object key string of the upload</button>
+            <button class="opt" data-correct="false">The local temporary path on this box</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            Two source files share the name <code>clip.mov</code> but hold different
+            bytes. What makes the cache tell them apart correctly?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Keying the cache on the file path</button>
+            <button class="opt" data-correct="true">Keying the cache on a content hash</button>
+            <button class="opt" data-correct="false">Keying the cache on the upload time</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            A teammate deletes an encoded mp4 from COS, but Prefect still reports a
+            cache hit. What is the root cause of this mismatch?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Hits come from Prefect's record, not COS</button>
+            <button class="opt" data-correct="false">The cache expiration window was far too long</button>
+            <button class="opt" data-correct="false">The bucket name was missing its APPID part</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/advanced/results">Results &amp; persistence</a>
+            (the <code>result_storage</code> model) and
+            <a href="https://docs.prefect.io/v3/how-to-guides/workflows/cache-workflow-steps">Cache workflow steps</a>
+            (the <code>S3Bucket</code> caching example).
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to verify the COS
+        endpoint for <em>your</em> region, add the existence-check guard, store
+        results as a real <code>.mp4</code> content-type instead of a pickle, or
+        check whether this is idiomatic on the
+        <a href="https://prefect.io/slack">Prefect Slack</a>? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/results-storage-cheatsheet.html">Results &amp; storage cheatsheet →</a></span>
+        <span><a href="0005-on-a-schedule.html">Next: Lesson 5 — put it on a schedule →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. Cache the pointer, store the payload."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

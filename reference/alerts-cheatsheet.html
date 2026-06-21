@@ -1,0 +1,88 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alerting — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Alerting</p>
+  <h1>Failure alerts</h1>
+  <p class="subtitle">Get told when a run fails — hooks for per-flow logic, Automations for fleet-wide safety nets.</p>
+</header>
+
+<main>
+  <h2>Two mechanisms — pick by need</h2>
+  <table>
+    <tr><th></th><th>State-change hook</th><th>Automation</th></tr>
+    <tr><td>Runs where</td><td>In your flow's <strong>process</strong></td><td>On the Prefect <strong>server</strong></td></tr>
+    <tr><td>Catches <span class="pill failed">Failed</span></td><td>✓</td><td>✓</td></tr>
+    <tr><td>Catches <span class="pill crashed">Crashed</span> (process killed)</td><td>✗ (no process left to run it)</td><td>✓ (server sees the event)</td></tr>
+    <tr><td>Scope</td><td>One flow (custom per-flow logic)</td><td>Every deployment, one rule</td></tr>
+    <tr><td>Defined in</td><td>Python (<code>@flow(on_failure=[...])</code>)</td><td>UI or Python SDK</td></tr>
+  </table>
+
+  <h2>on_failure hook</h2>
+  <pre><code>from prefect import flow
+
+def alert_on_failure(flow, flow_run, state):
+    msg = f"Flow '{flow_run.name}' entered {state.name}.\nReason: {state.message}"
+    SlackWebhook.load("ops-alerts").notify(body=msg, subject="🔴 a run failed")
+
+@flow(on_failure=[alert_on_failure])
+def nightly_report():
+    ...</code></pre>
+  <p>Other flow hooks: <code>on_completion</code>, <code>on_crashed</code>, <code>on_cancellation</code>, <code>on_running</code>. All receive <code>(flow, flow_run, state)</code>.</p>
+
+  <h2>Notification blocks</h2>
+  <p>A reusable connection to a channel. Save once, <code>.load()</code> + <code>.notify(body, subject)</code> anywhere.</p>
+  <pre><code># Production — real Slack
+from prefect_slack import SlackWebhook
+SlackWebhook(url="https://hooks.slack.com/services/...").save("ops-alerts")
+
+# Local learning — POST to a catcher (alert_listener.py)
+from prefect.blocks.notifications import CustomWebhookNotificationBlock
+CustomWebhookNotificationBlock(
+    name="local-alert",
+    url="http://127.0.0.1:8077/alert",
+    method="POST",
+    json_data={"text": "{{subject}}\n{{body}}"},
+    headers={"Content-Type": "application/json"},
+    allow_private_urls=True,   # required for localhost
+).save("local-alert", overwrite=True)</code></pre>
+  <p>Built-in blocks (in <code>prefect.blocks.notifications</code>): <code>SlackWebhook</code>, <code>MicrosoftTeamsWebhook</code>, <code>DiscordWebhook</code>, <code>MattermostWebhook</code>, <code>OpsgenieWebhook</code>, <code>CustomWebhookNotificationBlock</code>, plus Apprise-backed channels.</p>
+
+  <h2>Server-side Automation (SDK)</h2>
+  <pre><code>from prefect.automations import Automation
+from prefect.events.schemas.automations import EventTrigger, Posture
+from prefect.events.actions import SendNotification  # or configure in the UI
+
+Automation(
+    name="alert-on-failure",
+    trigger=EventTrigger(
+        expect={"prefect.flow-run.Failed", "prefect.flow-run.Crashed"},
+        match={"prefect.resource.id": ["prefect.flow-run.*"]},
+        posture=Posture.Reactive,
+        threshold=1,
+    ),
+    actions=[...],   # send notification, etc.
+).create()</code></pre>
+  <p class="why"><span class="label">Easiest path</span> Build it in the UI: <strong>Automations → New</strong> → trigger "Flow run state" (Failed/Crashed) → action "Send a notification" (pick a block). One rule, every deployment.</p>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Want</th><th>Right tool</th></tr>
+    <tr><td>Custom alert logic for one flow</td><td><code>on_failure</code> hook</td></tr>
+    <tr><td>Catch crashes (dead process)</td><td>server-side Automation</td></tr>
+    <tr><td>One rule for all deployments</td><td>server-side Automation</td></tr>
+    <tr><td>The channel itself</td><td>a notification block (<code>SlackWebhook</code>, …)</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/workflows/state-change-hooks">State-change hooks</a> and <a href="https://docs.prefect.io/v3/how-to-guides/automations/creating-automations">Creating automations</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0007-get-alerted.html">← Lesson 7: Get alerted when it breaks</a></span>
+    <span><a href="diagnosis-cheatsheet.html">Diagnosis cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

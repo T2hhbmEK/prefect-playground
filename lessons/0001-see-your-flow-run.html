@@ -1,0 +1,230 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 1 — See your flow run</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 1 · Observability</p>
+    <h1>See your flow run</h1>
+    <p class="subtitle">
+        Right now your flow runs and vanishes. The first step to a production
+        pipeline is being able to <em>watch</em> it — and read what happened
+        after it's gone.
+    </p>
+</header>
+
+<main>
+    <p>
+        You already have a working flow in <code>01_getting_started.py</code>:
+        it fetches customer IDs and maps a task over them. When you run it, you
+        see some <code>print</code>-style output and then nothing. If it failed
+        at 3am, you'd have no idea why.
+    </p>
+
+    <p>
+        Prefect's first promise isn't scheduling or retries — it's
+        <strong>observability</strong>: every run is recorded as states, logs,
+        and timings you can inspect.<a
+            class="cite"
+            href="https://docs.prefect.io/v3/concepts/states"
+            >1</a
+        >
+        This lesson gets you one tangible win:
+        <strong>run your existing flow and watch it appear in the UI.</strong>
+    </p>
+
+    <h2>1 · Start the local stack</h2>
+    <p>
+        The UI and the database that records runs come from a local server.<a
+            class="cite"
+            href="https://docs.prefect.io/v3/api-ref/cli"
+            >2</a
+        >
+        This repo runs it (plus a Postgres database and MinIO object store) with
+        Docker Compose, so one command brings up everything:
+    </p>
+    <pre><code>docker compose up -d --build</code></pre>
+    <p>
+        Leave it running. Open
+        <a href="http://127.0.0.1:4200">http://127.0.0.1:4200</a> in your
+        browser. You'll see an empty dashboard. That's expected: nothing has run
+        <em>against</em> this server yet.
+    </p>
+
+    <div class="note">
+        <span class="label">Note</span> The server is pinned (in
+        <code>Dockerfile.server</code>) to the same Prefect version as your
+        client, so the API versions match exactly. It stores every run in
+        Postgres — that's what the UI reads. Stop the stack with
+        <code>docker compose down</code> (your data survives in volumes);
+        <code>docker compose down -v</code> wipes it.
+    </div>
+
+    <h2>2 · Point your flow at the server</h2>
+    <p>
+        The stack runs in the background, so you just tell Prefect where the API
+        lives (once), then run the flow you already have:
+    </p>
+    <pre><code>uv run prefect config set PREFECT_API_URL=http://127.0.0.1:4200/api
+uv run python 01_getting_started.py</code></pre>
+    <p>
+        Now refresh the dashboard. Your run is there — with a randomly-generated
+        name (like <em>"vivacious-vole"</em>), a state, and a duration.
+    </p>
+
+    <h2>3 · Read the run</h2>
+    <p>Click the flow run. This is the payoff. You should see:</p>
+    <ul>
+        <li>
+            A top-level <span class="pill completed">Completed</span> state for
+            the flow run.
+        </li>
+        <li>
+            A row of <strong>task runs</strong> — one
+            <code>get_customer_ids</code>, then ten
+            <code>process_customer</code> runs from your <code>.map()</code>,
+            each with its own state.
+        </li>
+        <li><strong>Logs</strong> and a timeline showing what ran when.</li>
+    </ul>
+    <p>
+        That row of task states is the thing cron never gave you: when something
+        breaks, you'll see <em>exactly which</em> task failed, not just "the
+        script errored."
+    </p>
+
+    <div class="try">
+        <span class="label">Try it — break something on purpose</span> Add
+        <code>raise ValueError("boom")</code> as the first line of
+        <code>process_customer</code>, run again, and refresh. The flow run now
+        shows <span class="pill failed">Failed</span>, and the task runs show
+        you it was the mapped task — not the fetch — that died. Then remove the
+        line. <em>This</em> is debugging a pipeline instead of guessing.
+    </div>
+
+    <h2>4 · The states vocabulary</h2>
+    <p>
+        Everything in that UI is built on <strong>states</strong>. You'll read
+        these words constantly, so anchor them now:
+    </p>
+    <table>
+        <tr>
+            <th>State</th>
+            <th>One-liner</th>
+        </tr>
+        <tr>
+            <td><span class="pill completed">Completed</span></td>
+            <td>Finished successfully.</td>
+        </tr>
+        <tr>
+            <td><span class="pill running">Running</span></td>
+            <td>Executing right now.</td>
+        </tr>
+        <tr>
+            <td><span class="pill failed">Failed</span></td>
+            <td>Your code raised an error it didn't handle.</td>
+        </tr>
+        <tr>
+            <td><span class="pill crashed">Crashed</span></td>
+            <td>The infrastructure died — Prefect lost contact.</td>
+        </tr>
+        <tr>
+            <td><span class="pill scheduled">Scheduled</span></td>
+            <td>Will run later (you'll meet this when we add schedules).</td>
+        </tr>
+    </table>
+    <p>
+        Full list and definitions live in the
+        <a href="../reference/glossary.html">glossary</a>.
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No peeking at the table above — retrieval is what makes it stick.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            Your flow died because the machine it ran on was killed mid-run (out
+            of memory). Which state does Prefect record?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">
+                Run is marked as the Failed state
+            </button>
+            <button class="opt" data-correct="true">
+                Run is marked as the Crashed state
+            </button>
+            <button class="opt" data-correct="false">
+                Run is marked as the Paused state
+            </button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            In the run you just viewed, how many
+            <code>process_customer</code> task runs appeared, and why?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">
+                One run, since one task was defined in the file
+            </button>
+            <button class="opt" data-correct="true">
+                Ten runs, since .map spawned one run per ID
+            </button>
+            <button class="opt" data-correct="false">
+                Zero runs, since mapping is lazily not tracked
+            </button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/concepts/states">States</a>. The
+            single most useful concept page for everything ahead. Skim the state
+            list; you've already met half of it.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Stuck on the server
+        start? Curious why <code>.map()</code> made ten task runs and not one?
+        Want to know what <code>.result()</code> is doing? Ask in the chat.
+        That's the fastest feedback loop you have.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/glossary.html">Glossary →</a></span>
+        <span style="color: var(--ink-faint)"
+            >Next: Lesson 2 — when things fail (retries)</span
+        >
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. The distinction is the whole point of orchestration."
+                    : "✗ Not quite — the highlighted answer is correct. Re-read the states table above.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

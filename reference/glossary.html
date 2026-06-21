@@ -1,0 +1,70 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prefect Glossary — reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Glossary</p>
+  <h1>Prefect Glossary</h1>
+  <p class="subtitle">The vocabulary, defined once and used consistently across every lesson.</p>
+</header>
+
+<main>
+  <h2>Core objects</h2>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Flow</strong></td><td>A Python function decorated with <code>@flow</code>. The unit Prefect orchestrates: it gets observed, can be deployed, scheduled, and retried. One <em>flow run</em> = one execution.</td></tr>
+    <tr><td><strong>Task</strong></td><td>A Python function decorated with <code>@task</code>, called from inside a flow. The smallest unit Prefect tracks. Tasks can retry, cache, and run concurrently independently of each other.</td></tr>
+    <tr><td><strong>Subflow</strong></td><td>A flow called from inside another flow. Tracked as its own run, nested under the parent.</td></tr>
+    <tr><td><strong>Run</strong></td><td>A single execution of a flow or task. Has an ID, a <em>state</em>, logs, timings, and (for tasks) a result.</td></tr>
+    <tr><td><strong>State</strong></td><td>Where a run is in its lifecycle (see below). Prefect's central abstraction — orchestration is the management of states.</td></tr>
+  </table>
+
+  <h2>Run states</h2>
+  <p>Every run moves through states. These are the words you'll read in the UI and in <code>prefect flow-runs ls</code>.</p>
+  <table>
+    <tr><th>State</th><th>Means</th></tr>
+    <tr><td><span class="pill scheduled">Scheduled</span></td><td>Prefect intends to run it, at or after a certain time. Not started yet.</td></tr>
+    <tr><td><span class="pill scheduled">Pending</span></td><td>Picked up, preparing to run (a brief transitional state).</td></tr>
+    <tr><td><span class="pill running">Running</span></td><td>Currently executing.</td></tr>
+    <tr><td><span class="pill completed">Completed</span></td><td>Finished successfully. The happy path.</td></tr>
+    <tr><td><span class="pill cached">Cached</span></td><td>Finished successfully by reusing a stored result instead of running — a cache hit. A <em>completed</em> state, just one your code never executed for.</td></tr>
+    <tr><td><span class="pill failed">Failed</span></td><td>Raised an exception the code didn't handle. A <em>known</em>, captured failure.</td></tr>
+    <tr><td><span class="pill crashed">Crashed</span></td><td>The infrastructure died (process killed, OOM, power loss) — Prefect lost contact, distinct from a clean Failed.</td></tr>
+    <tr><td><span class="pill scheduled">Paused</span></td><td>Deliberately suspended, often awaiting human input.</td></tr>
+    <tr><td><span class="pill failed">Cancelled</span></td><td>Stopped on request before finishing.</td></tr>
+  </table>
+  <p class="why"><span class="label">Why it matters</span> The difference between <strong>Failed</strong> and <strong>Crashed</strong> is the whole point of orchestration: Failed means your <em>code</em> hit an error it surfaced; Crashed means the <em>machine</em> went away. You debug them in completely different places.</p>
+
+  <h2>Production vocabulary</h2>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Deployment</strong></td><td>A flow packaged with <em>how/when</em> to run it (schedule, parameters, name). Turns a script you run by hand into something Prefect triggers. See the <a href="deployments-cheatsheet.html">deployments cheatsheet</a>.</td></tr>
+    <tr><td><strong><code>serve()</code></strong></td><td><code>flow.serve(name=…)</code> — registers a deployment <em>and</em> runs a long-lived local process that fires &amp; executes its scheduled runs. The local-first deployment path (no work pools).</td></tr>
+    <tr><td><strong>Schedule</strong></td><td>A rule attached to a deployment that creates <span class="pill scheduled">Scheduled</span> runs automatically — <code>cron=</code> (clock-based) or <code>interval=</code> (every N seconds).</td></tr>
+    <tr><td><strong>State-change hook</strong></td><td>A function a flow/task calls when it enters a state — <code>on_failure</code>, <code>on_completion</code>, <code>on_crashed</code>, … Runs <em>in the run's process</em>. Used for per-flow alerting. See the <a href="alerts-cheatsheet.html">alerts cheatsheet</a>.</td></tr>
+    <tr><td><strong>Automation</strong></td><td>A server-side rule: a <em>trigger</em> (e.g. a flow run enters Failed/Crashed) → an <em>action</em> (e.g. send a notification). The server runs it, so it catches crashes a dead process can't report, and one rule covers every deployment.</td></tr>
+    <tr><td><strong>Notification block</strong></td><td>A reusable connection to an alert channel (<code>SlackWebhook</code>, <code>CustomWebhookNotificationBlock</code>, …). Save once, <code>.load()</code> + <code>.notify(body, subject)</code> from a hook or Automation.</td></tr>
+    <tr><td><strong>Retry</strong></td><td>Automatic re-execution of a failed task/flow, configured with <code>retries=</code> and <code>retry_delay_seconds=</code>.</td></tr>
+    <tr><td><strong>Cache</strong></td><td>Reusing a prior task result instead of recomputing. A hit yields a <span class="pill cached">Cached</span> state. Configured with <code>cache_policy=</code>. See the <a href="caching-cheatsheet.html">caching cheatsheet</a>.</td></tr>
+    <tr><td><strong>Cache key / policy</strong></td><td>A <em>cache policy</em> (e.g. <code>INPUTS</code>, <code>TASK_SOURCE</code>, <code>DEFAULT</code>) computes a <em>cache key</em> for each call. Same key as before = cache hit. Combine policies with <code>+</code>.</td></tr>
+    <tr><td><strong>Result</strong></td><td>The return value of a task/flow run, which Prefect can persist (to disk or object storage) so it survives the process — the mechanism caching relies on.</td></tr>
+    <tr><td><strong>Result storage</strong></td><td>Where persisted results are written, set with <code>result_storage=</code>. Local by default; can be a remote <em>storage block</em>. Holds the <em>return value</em>, not your large artifacts.</td></tr>
+    <tr><td><strong>Storage block</strong></td><td>A saved, reusable connection to a storage backend (e.g. <code>S3Bucket</code> from <code>prefect-aws</code>, which also speaks S3-compatible stores like Tencent COS). Save once with <code>.save(name)</code>, reload with <code>.load(name)</code>. See the <a href="results-storage-cheatsheet.html">results &amp; storage cheatsheet</a>.</td></tr>
+    <tr><td><strong>Work pool</strong></td><td>A typed queue that scheduled runs land in, waiting to be executed. Types: <code>process</code> (local subprocess), <code>docker</code>, <code>kubernetes</code>, … Create with <code>prefect work-pool create &lt;n&gt; --type process</code>.</td></tr>
+    <tr><td><strong>Worker</strong></td><td>A process (<code>prefect worker start --pool &lt;n&gt;</code>) that polls a work pool and <em>executes</em> the runs it finds. The "where" half of a deployment, separate from the "what". See the <a href="work-pools-cheatsheet.html">work pools cheatsheet</a>.</td></tr>
+    <tr><td><strong><code>deploy()</code></strong></td><td><code>flow.from_source(...).deploy(work_pool_name=…)</code> — registers a deployment against a work pool and exits. The worker-based alternative to <code>serve()</code>; survives closed terminals and scales out.</td></tr>
+    <tr><td><strong>Task runner</strong></td><td>How a flow's <em>own tasks</em> spread out — set with <code>@flow(task_runner=…)</code>, acts only on <code>.submit()</code>/<code>.map()</code>ed tasks. <code>ThreadPoolTaskRunner</code> (default, concurrency for I/O) vs <code>ProcessPoolTaskRunner</code> (true multi-core parallelism for CPU). A different axis from work pools (which spread whole runs). See the <a href="task-runners-cheatsheet.html">task runners cheatsheet</a>.</td></tr>
+    <tr><td><strong>GIL</strong></td><td>CPython's Global Interpreter Lock: only one thread runs Python bytecode at a time. Why threads help I/O (a waiting task releases it) but not CPU work (a computing task holds it) — for CPU parallelism you need separate processes.</td></tr>
+  </table>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/concepts/states">States concept page</a>. The authoritative reference for state names and transitions.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0001-see-your-flow-run.html">← Lesson 1: See your flow run</a></span>
+    <span><a href="../MISSION.md">Mission</a></span>
+  </div>
+</main>

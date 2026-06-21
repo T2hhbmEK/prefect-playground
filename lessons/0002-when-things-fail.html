@@ -1,0 +1,205 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 2 — When things fail</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 2 · Resilience</p>
+    <h1>When things fail</h1>
+    <p class="subtitle">
+        Networks blip. APIs return 503 for two seconds and then recover.
+        A cron job would die and page you at 3am. A resilient flow just
+        <em>tries again</em> — and you find out in the morning it healed itself.
+    </p>
+</header>
+
+<main>
+    <p>
+        In <a href="0001-see-your-flow-run.html">Lesson 1</a> you learned to
+        <em>watch</em> a run and read its states — including
+        <span class="pill failed">Failed</span>, the state a task lands in when
+        your code raises an error.<a class="cite" href="https://docs.prefect.io/v3/concepts/states">1</a>
+        But many failures aren't really failures: they're a momentary blip that
+        would succeed on a second attempt. This lesson's win:
+        <strong>make a flaky task retry itself, and watch it recover live.</strong>
+    </p>
+
+    <h2>1 · One argument buys you resilience</h2>
+    <p>
+        Add <code>retries=</code> to a task and Prefect re-runs it automatically
+        when it raises. Add <code>retry_delay_seconds=</code> to wait between
+        attempts.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/retries">2</a>
+        That's the whole core idea:
+    </p>
+    <pre><code>@task(retries=3, retry_delay_seconds=2)
+def fetch_flaky_data(source):
+    if random.random() &lt; 0.6:        # fails ~60% of the time
+        raise ConnectionError("transient blip")
+    return {"rows": 42}</code></pre>
+    <p>
+        <code>retries=3</code> means up to <strong>4 total attempts</strong>
+        (the first try plus three retries). With a 60% failure rate, the odds
+        that all four attempts fail are only ~13% — so most of the time this
+        flaky task <em>recovers on its own</em>.
+    </p>
+
+    <h2>2 · Run it and watch the retries</h2>
+    <p>
+        Make sure your local stack from Lesson 1 is up
+        (<code>docker compose up -d</code>). Then run
+        the resilience example that's been added to your repo:
+    </p>
+    <pre><code>uv run python 02_resilience.py</code></pre>
+    <p>
+        Open the run in the UI and click the <code>fetch_flaky_data</code> task.
+        This is the payoff: you'll see <strong>multiple attempts</strong> — some
+        <span class="pill failed">Failed</span> with the <code>ConnectionError</code>
+        in the logs — and then a final <span class="pill completed">Completed</span>.
+        The <em>flow</em> stays green even though individual attempts failed.
+        That row of attempts is something cron could never show you.
+    </p>
+
+    <div class="try">
+        <span class="label">Try it — make it lose</span>
+        Run the script a handful of times. Eventually you'll hit the ~13% case
+        where all four attempts fail and the flow goes
+        <span class="pill failed">Failed</span>. Compare that run's task to a
+        successful one: same code, different luck. <em>This</em> is why you set
+        retries higher for flakier dependencies.
+    </div>
+
+    <h2>3 · Smarter waiting: backoff</h2>
+    <p>
+        Retrying every 2 seconds can keep a struggling service down. Better to
+        back off — wait longer each time. Pass a list, or use the built-in
+        helper:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/retries">2</a>
+    </p>
+    <pre><code>from prefect.tasks import exponential_backoff
+
+@task(retries=4, retry_delay_seconds=exponential_backoff(backoff_factor=2))
+def fetch_with_backoff(source):   # waits 2s, 4s, 8s, 16s
+    ...</code></pre>
+    <p>
+        (This task is in <code>02_resilience.py</code> too — swap the flow to
+        call it if you want to watch the growing delays in the timeline.)
+    </p>
+
+    <h2>4 · Don't retry what can't recover</h2>
+    <p>
+        Retries are for <em>transient</em> failures. A <code>404</code> or a bad
+        password (<code>401</code>) won't fix itself — retrying just wastes time.
+        Pass <code>retry_condition_fn</code> to decide per-failure whether to
+        bother:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/retries">2</a>
+    </p>
+    <pre><code>def retry_handler(task, task_run, state) -&gt; bool:
+    try:
+        state.result()
+    except httpx.HTTPStatusError as exc:
+        return exc.response.status_code not in (401, 404)  # give up on these
+    return True
+
+@task(retries=3, retry_condition_fn=retry_handler)
+def api_call(url): ...</code></pre>
+
+    <h2>5 · Cap runaway runs: timeout</h2>
+    <p>
+        A retry can't help a task that <em>hangs</em> forever. <code>timeout_seconds</code>
+        cancels a run that overstays its welcome:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/write-and-run">3</a>
+    </p>
+    <pre><code>@flow(timeout_seconds=30)
+def pipeline(): ...   # killed if it runs longer than 30s</code></pre>
+    <p>
+        All these knobs live on one page now — the
+        <a href="../reference/resilience-cheatsheet.html">resilience cheatsheet</a>.
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You write <code>@task(retries=3)</code>. The task keeps raising on
+            every single attempt. How many times does it run in total?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">It runs three total times before failing</button>
+            <button class="opt" data-correct="true">It runs four total times before failing</button>
+            <button class="opt" data-correct="false">It runs seven total times before failing</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            A task fails with a <code>404 Not Found</code> from an API. Which
+            tool stops Prefect from wasting retries on it?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Set a far longer retry_delay_seconds value</button>
+            <button class="opt" data-correct="true">Return False from a retry_condition_fn callable</button>
+            <button class="opt" data-correct="false">Wrap the whole call in exponential_backoff helper</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            A task makes <em>no</em> progress and will hang forever waiting on a
+            dead socket. Retries won't help. What caps it?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A higher retries count on the slow task</button>
+            <button class="opt" data-correct="true">A timeout_seconds value on the slow task</button>
+            <button class="opt" data-correct="false">A shorter retry_delay between each attempt</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/workflows/retries">Configure retries</a>.
+            Short, example-driven, and covers every pattern above. Skim it; you've
+            already used the first three.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to know why a
+        <code>retry_condition_fn</code> receives <code>state</code> and not the
+        exception? Curious whether flows can retry too (they can)? Confused about
+        the timeout caveat for sync tasks? Ask in the chat — tightest feedback
+        loop you have.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/resilience-cheatsheet.html">Resilience cheatsheet →</a></span>
+        <span style="color: var(--ink-faint)">Next: Lesson 3 — don't redo work (caching)</span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. Resilience is one decorator argument away."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

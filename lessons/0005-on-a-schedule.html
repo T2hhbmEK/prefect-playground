@@ -1,0 +1,191 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 5 — Put it on a schedule</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 5 · Deployments &amp; schedules</p>
+    <h1>Put it on a schedule</h1>
+    <p class="subtitle">
+        So far you've run flows by typing <code>python script.py</code>. The whole
+        point of the mission is to <em>stop</em> doing that — to hand the script to
+        Prefect and have it run on its own, every night, whether or not you're
+        watching. That's a <strong>deployment</strong>.
+    </p>
+</header>
+
+<main>
+    <p>
+        You've made flows observable (<a href="0001-see-your-flow-run.html">L1</a>),
+        resilient (<a href="0002-when-things-fail.html">L2</a>), and cheap to
+        re-run (<a href="0003-dont-redo-work.html">L3</a>,
+        <a href="0004-results-and-cos.html">L4</a>). They still only run when you
+        launch them by hand. This lesson's win: <strong>turn a script into a
+        deployment that runs itself on a schedule, and watch new runs appear in the
+        UI with no one at the keyboard.</strong>
+    </p>
+
+    <h2>1 · <code>serve()</code> turns a script into a deployment</h2>
+    <p>
+        A <strong>deployment</strong> is your flow plus the <em>how/when</em> to run
+        it — a schedule, default parameters, a name you can trigger by.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">1</a>
+        The simplest way to create one locally is <code>flow.serve()</code>:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployment_infra/run-flows-in-local-processes">2</a>
+    </p>
+    <pre><code>@flow(log_prints=True)
+def scheduled_pipeline(label="nightly"):
+    n = fetch_rows()
+    print(f"[{label}] processed {n} rows")
+    return n
+
+if __name__ == "__main__":
+    scheduled_pipeline.serve(name="scheduled-pipeline", interval=30)</code></pre>
+    <p>
+        <code>serve()</code> does two things at once: it <strong>registers the
+        deployment</strong> with the API, and it <strong>starts a long-running
+        process</strong> that creates scheduled runs and executes them. No work
+        pools, no workers, no containers — just this one process.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployment_infra/run-flows-in-local-processes">2</a>
+    </p>
+
+    <h2>2 · Run it and watch runs appear by themselves</h2>
+    <p>
+        <code>05_deployment.py</code> is in your repo. With your local stack up
+        (<code>docker compose up -d</code>), start serving:
+    </p>
+    <pre><code>uv run python 05_deployment.py     # leave it running; Ctrl-C to stop</code></pre>
+    <p>
+        It prints a deployment URL and then sits there. Every 30 seconds a fresh
+        run fires on its own — you'll see lines like:
+    </p>
+    <pre><code>Flow run 'diligent-duck' - View at http://127.0.0.1:4200/runs/flow-run/...
+Task run 'fetch_rows-5c3' - Finished in state Completed()
+Flow run 'diligent-duck' - [nightly] processed 42 rows</code></pre>
+    <p>
+        Open <strong>Deployments</strong> in the UI: there's
+        <code>scheduled-pipeline</code>, with its schedule and a growing list of
+        runs <em>you didn't launch</em>. That's the mission's headline, achieved.
+    </p>
+    <div class="try">
+        <span class="label">Try it — trigger one yourself</span>
+        While <code>serve()</code> is running, open another terminal and run
+        <code>uv run prefect deployment run 'scheduled-pipeline/scheduled-pipeline'</code>.
+        An on-demand run appears alongside the scheduled ones — same deployment, no
+        editing code. This is how you'd kick off a backfill.
+    </div>
+
+    <h2>3 · cron vs interval</h2>
+    <p>
+        Two ways to express "when". <code>interval=</code> is "every N seconds";
+        <code>cron=</code> is a standard cron string for clock-based times.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">1</a>
+    </p>
+    <pre><code>scheduled_pipeline.serve(name="nightly", cron="0 8 * * *")     # every day 08:00
+scheduled_pipeline.serve(name="hourly",  interval=3600)        # every hour</code></pre>
+    <p>
+        The demo uses <code>interval=30</code> so you don't wait until 8am to see
+        it work; the comment in the script shows the realistic
+        <code>cron="0 8 * * *"</code>. Both create the same kind of
+        <span class="pill scheduled">Scheduled</span> runs you met in Lesson 1 —
+        Prefect just makes them for you now.
+    </p>
+
+    <h2>4 · The gotcha: serve() must keep running</h2>
+    <div class="why">
+        <span class="label">No process, no runs</span>
+        <code>serve()</code> <em>is</em> the thing executing your schedule. Close
+        the terminal and the schedule goes dark — no runs fire. For real use you'd
+        keep it alive with a process manager (<code>launchd</code>, <code>tmux</code>,
+        a <code>systemd</code> unit). The heavier alternative —
+        <code>flow.deploy()</code> with work pools and workers — survives a logout
+        but needs infrastructure we're keeping
+        <a href="../MISSION.md">out of scope</a> for now.
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            What does calling <code>flow.serve(...)</code> actually do when it runs?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Runs the flow one time and then exits</button>
+            <button class="opt" data-correct="true">Registers a deployment and serves its schedule</button>
+            <button class="opt" data-correct="false">Builds a container image for the flow</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            You want the pipeline to run every day at 08:00. Which argument
+            expresses that clock-based timing?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Pass an interval of seconds value</button>
+            <button class="opt" data-correct="true">Pass a cron string schedule value</button>
+            <button class="opt" data-correct="false">Pass a longer retry delay value</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            You close the terminal that was running <code>serve()</code>. What
+            happens to the scheduled runs after that?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">They stop firing until you serve again</button>
+            <button class="opt" data-correct="false">They keep firing from the saved schedule</button>
+            <button class="opt" data-correct="false">They move onto a worker automatically</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployment_infra/run-flows-in-local-processes">Run flows in local processes</a>
+            (the <code>serve()</code> path) and
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/deploy-via-python">Deploy via Python</a>
+            (schedules &amp; parameters).
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to serve several
+        deployments from one process, pass default <code>parameters=</code>, give a
+        schedule a timezone, or keep <code>serve()</code> alive with
+        <code>launchd</code> on your Mac? Curious when you'd graduate to
+        <code>deploy()</code> + work pools? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/deployments-cheatsheet.html">Deployments cheatsheet →</a></span>
+        <span><a href="0006-diagnose-a-failure.html">Next: Lesson 6 — diagnose a failed run →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. Your script now runs without you."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

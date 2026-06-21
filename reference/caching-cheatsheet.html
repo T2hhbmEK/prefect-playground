@@ -1,0 +1,78 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caching — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Caching</p>
+  <h1>Caching &amp; cache policies</h1>
+  <p class="subtitle">Skip work that already succeeded — every policy and knob in one place, copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>The decorator arguments</h2>
+  <table>
+    <tr><th>Argument</th><th>What it does</th></tr>
+    <tr><td><code>cache_policy=POLICY</code></td><td>How the cache key is computed. A hit returns the stored result as a <span class="pill cached">Cached</span> state — your function never runs.</td></tr>
+    <tr><td><code>cache_expiration=timedelta(...)</code></td><td>How long a cached result stays valid. After it lapses, the next call recomputes. Omit = never expires.</td></tr>
+    <tr><td><code>cache_key_fn=fn</code></td><td>A callable <code>(context, parameters) -&gt; str</code> for a fully custom key. Use when the built-in policies don't fit.</td></tr>
+    <tr><td><code>persist_result=True</code></td><td>Store results to disk so they survive across runs. Setting a <code>cache_policy</code> turns this on for you.</td></tr>
+  </table>
+
+  <h2>Built-in cache policies</h2>
+  <p>Import from <code>prefect.cache_policies</code>. Combine them with <code>+</code>.</p>
+  <table>
+    <tr><th>Policy</th><th>Keys on</th></tr>
+    <tr><td><code>DEFAULT</code></td><td>Inputs <em>+</em> task code <em>+</em> run id. The catch: <code>RUN_ID</code> means it only hits <strong>within one flow run</strong>.</td></tr>
+    <tr><td><code>INPUTS</code></td><td>The task's arguments only. Hits <strong>across runs</strong> — this is usually what you want for scheduled pipelines.</td></tr>
+    <tr><td><code>TASK_SOURCE</code></td><td>The task's source code lines. Editing the task busts the cache.</td></tr>
+    <tr><td><code>FLOW_PARAMETERS</code></td><td>The parameters passed to the parent flow.</td></tr>
+    <tr><td><code>NO_CACHE</code></td><td>Disables caching entirely.</td></tr>
+  </table>
+
+  <h2>Cache on inputs, with expiration</h2>
+  <pre><code>from datetime import timedelta
+from prefect import task
+from prefect.cache_policies import INPUTS
+
+@task(cache_policy=INPUTS, cache_expiration=timedelta(minutes=5))
+def expensive_fetch(source):
+    ...  # same `source` within 5 min -> Cached, no re-run</code></pre>
+
+  <h2>Re-run when inputs OR code change</h2>
+  <pre><code>from prefect import task
+from prefect.cache_policies import INPUTS, TASK_SOURCE
+
+@task(cache_policy=INPUTS + TASK_SOURCE)
+def transform(rows):
+    ...  # busts the cache if you edit the body</code></pre>
+
+  <h2>The composite default, spelled out</h2>
+  <pre><code>DEFAULT = INPUTS + TASK_SOURCE + RUN_ID</code></pre>
+  <p class="why"><span class="label">Why your cache "doesn't work" across runs</span> The default includes <code>RUN_ID</code>, so a fresh run never reuses a previous run's results. To cache between scheduled runs, pick a policy <em>without</em> <code>RUN_ID</code> — e.g. <code>INPUTS</code> or <code>INPUTS + TASK_SOURCE</code>.</p>
+
+  <h2>Mental model</h2>
+  <table>
+    <tr><th>Want</th><th>Right tool</th></tr>
+    <tr><td>Skip a slow call when args are unchanged</td><td><code>cache_policy=INPUTS</code></td></tr>
+    <tr><td>Also re-run when you edit the code</td><td><code>cache_policy=INPUTS + TASK_SOURCE</code></td></tr>
+    <tr><td>Treat data as stale after a while</td><td><code>cache_expiration=timedelta(...)</code></td></tr>
+    <tr><td>Cache only inside a single run (safe default)</td><td><code>DEFAULT</code> (the built-in behavior)</td></tr>
+    <tr><td>Turn caching off for one task</td><td><code>cache_policy=NO_CACHE</code></td></tr>
+  </table>
+
+  <div class="note">
+    <span class="label">Caching vs retries</span>
+    Different jobs. <a href="resilience-cheatsheet.html">Retries</a> re-run work that <em>failed</em>; caching avoids re-running work that <em>succeeded</em>. They compose: a task can retry on a blip and, once it lands, persist a cached result for next time.
+  </div>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/workflows/cache-workflow-steps">Cache workflow steps</a> and the <a href="https://docs.prefect.io/v3/concepts/caching">Caching concept</a> page.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0003-dont-redo-work.html">← Lesson 3: Don't redo work</a></span>
+    <span><a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

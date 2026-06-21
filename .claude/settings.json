@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qE '(^|[;&|(]|&&|\\|\\|)[[:space:]]*((sudo|command|time|nohup|doas|xargs)[[:space:]]+|env([[:space:]]+[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)*[[:space:]]+)*(npm|pnpm|yarn)([[:space:]]|$)' && printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Use bun, not npm/pnpm/yarn, in this repo (e.g. bun install, bun run <script>, bunx <pkg>).\"}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}

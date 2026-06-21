@@ -1,0 +1,196 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 7 — Get alerted when it breaks</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 7 · Alerting</p>
+    <h1>Get alerted when it breaks</h1>
+    <p class="subtitle">
+        Lesson 6 let you <em>investigate</em> a failure after you noticed it. But
+        you shouldn't have to notice. The last mile of "visible when it breaks" is
+        Prefect reaching out to <em>you</em> the moment a run fails — so you find
+        out from a ping, not from a confused user.
+    </p>
+</header>
+
+<main>
+    <p>
+        You can diagnose a failed run (<a href="0006-diagnose-a-failure.html">L6</a>),
+        but only once you go looking. This lesson's win: <strong>make a failing flow
+        send you an alert automatically, and watch it arrive — fully locally.</strong>
+        We'll use a throwaway local listener now; swapping in real Slack later is
+        one line.
+    </p>
+
+    <h2>1 · A failure hook</h2>
+    <p>
+        Prefect flows take <strong>state-change hooks</strong> — functions it calls
+        when the run enters a given state. <code>on_failure</code> is the one you
+        want; it receives the flow, the flow run, and the failing state.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/state-change-hooks">1</a>
+    </p>
+    <pre><code>def alert_on_failure(flow, flow_run, state):
+    msg = f"Flow '{flow_run.name}' entered {state.name}.\nReason: {state.message}"
+    get_alerter().notify(body=msg, subject="🔴 Prefect: a run failed")
+
+@flow(on_failure=[alert_on_failure])
+def nightly_report():
+    ...</code></pre>
+    <p>
+        The <code>.notify()</code> call belongs to a <strong>notification
+        block</strong> — Prefect's reusable connection to a channel (Slack, a
+        webhook, email).<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/state-change-hooks">1</a>
+        For learning, ours posts to a tiny local catcher.
+    </p>
+
+    <h2>2 · Watch an alert arrive</h2>
+    <p>
+        Two scripts are in your repo: <code>alert_listener.py</code> (a local
+        webhook catcher) and <code>07_alerts.py</code> (the failing flow + hook).
+        In one terminal, start the listener:
+    </p>
+    <pre><code>uv run python alert_listener.py     # waits on http://127.0.0.1:8077</code></pre>
+    <p>In another, run the flow — it fails on purpose, like Lesson 6:</p>
+    <pre><code>uv run python 07_alerts.py</code></pre>
+    <p>
+        The flow goes <span class="pill failed">Failed</span>, you see
+        <code>Running hook 'alert_on_failure'</code> in its logs, and the listener
+        terminal lights up:
+    </p>
+    <pre><code>🔔 ALERT RECEIVED:
+🔴 Prefect: a run failed
+Flow 'translucent-silkworm' entered Failed.
+Reason: Flow run encountered an exception: ValueError: row 2 has no amount</code></pre>
+    <p>That's the win — nobody was watching the UI, and the failure still found you.</p>
+
+    <h2>3 · Same hook, real Slack</h2>
+    <p>
+        In production you don't run a catcher — you point a real notification block
+        at a Slack incoming webhook. The hook body is identical; only the block
+        changes:<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/workflows/state-change-hooks">1</a>
+    </p>
+    <pre><code>from prefect_slack import SlackWebhook
+
+SlackWebhook(url="https://hooks.slack.com/services/...").save("ops-alerts")
+# then in the hook:
+SlackWebhook.load("ops-alerts").notify(body=msg, subject="...")</code></pre>
+    <p>
+        This is the one place the mission's "local for now" boundary meets the real
+        world — and it's a single saved block away.
+    </p>
+
+    <h2>4 · The gotcha: hooks die with the process</h2>
+    <div class="why">
+        <span class="label">Failed vs Crashed, again</span>
+        <code>on_failure</code> runs <em>inside your flow's process</em>. That's
+        fine for <span class="pill failed">Failed</span> (your code raised, the
+        process is alive to run the hook). But if the process is
+        <strong>killed</strong> — OOM, a <code>SIGKILL</code>, the machine
+        rebooting — it lands <span class="pill crashed">Crashed</span> and there's
+        no process left to send anything. The hook simply never runs.
+    </div>
+    <p>
+        That's what server-side <strong>Automations</strong> are for: rules the
+        Prefect <em>server</em> evaluates on the events it receives — "when any flow
+        run enters Failed <em>or</em> Crashed, send a notification."<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/automations/creating-automations">2</a>
+        Because the server runs them, they catch crashes a dead process can't
+        report, and one rule covers <em>every</em> deployment without editing a
+        single flow. Set one up in the UI under <strong>Automations</strong>
+        (trigger: flow run state → action: send a notification). Use hooks for
+        per-flow logic; use Automations for fleet-wide safety nets.
+    </p>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You want a flow to ping you the instant <em>it</em> fails, with custom
+            logic in its own code. What do you add?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">An on_failure hook on the flow</button>
+            <button class="opt" data-correct="false">A longer retry delay value</button>
+            <button class="opt" data-correct="false">A second deployment schedule</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            The process is hard-killed (OOM) and the run lands
+            <span class="pill crashed">Crashed</span>. Why does the
+            <code>on_failure</code> hook never send its alert?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Because crashed runs cannot ever be alerted</button>
+            <button class="opt" data-correct="true">Because the hook runs inside the dead process</button>
+            <button class="opt" data-correct="false">Because hooks only fire on the second attempt</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            You want one alerting rule covering <em>every</em> deployment, including
+            crashes, without editing each flow. What do you use?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A shared on_failure hook in each flow</button>
+            <button class="opt" data-correct="true">A server-side Automation on run states</button>
+            <button class="opt" data-correct="false">A longer timeout on every single task</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/workflows/state-change-hooks">State-change hooks</a>
+            (the <code>on_failure</code> pattern) and
+            <a href="https://docs.prefect.io/v3/how-to-guides/automations/creating-automations">Creating automations</a>
+            (the server-side safety net).
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to build the
+        Automation in the UI step by step, format a richer Slack message, alert
+        only on the <em>third</em> consecutive failure, or also hook
+        <code>on_completion</code> / <code>on_crashed</code>? Ask in the chat — and
+        when you're ready to wire up real Slack, the
+        <a href="https://prefect.io/slack">Prefect community</a> is the place to
+        sanity-check it.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/alerts-cheatsheet.html">Alerts cheatsheet →</a></span>
+        <span><a href="0008-work-pools-and-workers.html">Next: Lesson 8 — work pools &amp; workers →</a></span>
+    </div>
+</main>
+
+<script>
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. The failure finds you, not the other way around."
+                    : "✗ Not quite — the highlighted answer is correct. Re-check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>
