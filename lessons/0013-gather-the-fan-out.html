@@ -43,6 +43,7 @@ def process_archive(archive: str):
         for s in segments
     ]
     finished = [wait_for_flow_run(r.id) for r in runs]   # ── gather: now block on each</code></pre>
+    <p class="note" style="margin:0.6rem 0"><span class="label">⚠ Corrected in <a href="0014-run-the-fleet.html">L14</a></span> <code>wait_for_flow_run</code> is <strong>async-only</strong> in our <code>3.7.5.dev4</code> build — this exact line fails in a <em>sync</em> flow (<code>'coroutine' object has no attribute 'state'</code>). In sync code, poll state with <code>get_client(sync_client=True)</code>; or make the coordinator <code>async</code> and <code>await</code> it.</p>
     <div class="why">
         <span class="label">Why not just drop <code>timeout=0</code>?</span>
         Letting <code>run_deployment</code> block (its default) waits on each encode
