@@ -199,50 +199,82 @@ def process_archive(archive: str):
         var BATCH = 6;
         var palette = ["#0a4fa0", "#1f7a4d", "#9a6b00", "#5a4b8a", "#2f6f6a", "#c2410c"];
         var mode = "fanout";
+        var dispatched = false;
         var box = w.querySelector(".machines");
         var readout = w.querySelector(".readout");
 
         function assign() {
             var a = machines.map(function () { return 0; });
-            if (mode === "subflow") { a[0] = BATCH; }
-            else { for (var i = 0; i < BATCH; i++) { a[i % machines.length]++; } }
+            if (mode === "subflow") { a[0] = BATCH; return a; }
+            // fan-out: runs sit on the `encode` pool; each worker pulls only up to
+            // its own --limit, so placement is capacity-aware, not blind round-robin.
+            var placed = 0;
+            while (placed < BATCH) {
+                var progressed = false;
+                for (var i = 0; i < machines.length && placed < BATCH; i++) {
+                    if (a[i] < machines[i].cap) { a[i]++; placed++; progressed = true; }
+                }
+                if (!progressed) break; // whole fleet saturated
+            }
+            // any overflow (fleet full) genuinely waits — show it as such
+            for (var k = 0; placed < BATCH; k++, placed++) { a[k % machines.length]++; }
             return a;
         }
 
+        function card(m, mi, a) {
+            var running = a ? Math.min(a[mi], m.cap) : 0;
+            var waiting = a ? Math.max(0, a[mi] - m.cap) : 0;
+            var el = document.createElement("div");
+            el.className = "machine";
+            var name = document.createElement("div");
+            name.className = "mname";
+            name.innerHTML = "<span>" + m.name + "</span><span class='cap'>" + running + "/" + m.cap + "</span>";
+            el.appendChild(name);
+            var slots = document.createElement("div");
+            slots.className = "mslots";
+            for (var i = 0; i < m.cap; i++) {
+                var c = document.createElement("div");
+                c.className = "chip" + (i < running ? " run" : "");
+                if (i < running) c.style.background = palette[(mi * 3 + i) % palette.length];
+                slots.appendChild(c);
+            }
+            for (var j = 0; j < waiting; j++) {
+                var q = document.createElement("div");
+                q.className = "chip wait";
+                slots.appendChild(q);
+            }
+            el.appendChild(slots);
+            return el;
+        }
+
         function render() {
-            var a = assign();
             box.innerHTML = "";
+            if (!dispatched) {
+                machines.forEach(function (m, mi) { box.appendChild(card(m, mi, null)); });
+                readout.innerHTML = "<strong>" + BATCH + " encodes queued.</strong> Hit ▶ Dispatch to send them — watch where they land in <strong>" +
+                    (mode === "subflow" ? "subflow / .map" : "run_deployment fan-out") + "</strong> mode.";
+                return;
+            }
+            var a = assign();
+            var totalWait = 0, used = 0;
             machines.forEach(function (m, mi) {
-                var running = Math.min(a[mi], m.cap);
-                var waiting = Math.max(0, a[mi] - m.cap);
-                var card = document.createElement("div");
-                card.className = "machine";
-                var name = document.createElement("div");
-                name.className = "mname";
-                name.innerHTML = "<span>" + m.name + "</span><span class='cap'>" + running + "/" + m.cap + "</span>";
-                card.appendChild(name);
-                var slots = document.createElement("div");
-                slots.className = "mslots";
-                for (var i = 0; i < m.cap; i++) {
-                    var c = document.createElement("div");
-                    c.className = "chip" + (i < running ? " run" : "");
-                    if (i < running) c.style.background = palette[(mi * 3 + i) % palette.length];
-                    slots.appendChild(c);
-                }
-                for (var j = 0; j < waiting; j++) {
-                    var q = document.createElement("div");
-                    q.className = "chip wait";
-                    slots.appendChild(q);
-                }
-                card.appendChild(slots);
-                box.appendChild(card);
+                totalWait += Math.max(0, a[mi] - m.cap);
+                if (a[mi] > 0) used++;
+                box.appendChild(card(m, mi, a));
             });
             if (mode === "subflow") {
                 readout.innerHTML = "<strong>subflow / .map:</strong> all " + BATCH +
-                    " encodes run inside one flow → <strong>one machine</strong> (big-cvm): 4 run, 2 wait (dashed). med-vm &amp; small-vm sit <strong>idle</strong>.";
+                    " encodes run inside one flow → <strong>one machine</strong> (big-cvm): " +
+                    Math.min(BATCH, machines[0].cap) + " run, " + Math.max(0, BATCH - machines[0].cap) +
+                    " wait (dashed). med-vm &amp; small-vm sit <strong>idle</strong>.";
             } else {
+                var spread = machines.map(function (m, mi) { return m.name + "&nbsp;" + Math.min(a[mi], m.cap); }).join(", ");
                 readout.innerHTML = "<strong>run_deployment fan-out:</strong> " + BATCH +
-                    " separate flow runs land on the <code>encode</code> pool → <strong>every machine</strong> pitches in, each gated by its own L11 limit. Nothing waiting.";
+                    " separate flow runs hit the <code>encode</code> pool → <strong>" + used +
+                    " machines</strong> pitch in (" + spread + "), each gated by its own L11 limit. " +
+                    (totalWait > 0
+                        ? "<strong>" + totalWait + " waiting</strong> for a free slot (fleet full)."
+                        : "Nothing waiting — total capacity (7 slots) covers the batch.");
             }
         }
 
@@ -254,7 +286,7 @@ def process_archive(archive: str):
                 render();
             });
         });
-        w.querySelector(".dispatch").addEventListener("click", render);
+        w.querySelector(".dispatch").addEventListener("click", function () { dispatched = true; render(); });
         render();
     })();
 
