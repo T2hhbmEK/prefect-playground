@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from conftest import example_scripts, load_script
+
 from prefect import Flow
 
 SCRIPTS = example_scripts()
