@@ -14,6 +14,15 @@ work pools, workers, and distributed execution. The goal shifts from "make one
 machine's pipelines reliable" toward "decouple the *what* from the *where*", the
 foundation for scaling out and eventual production deployment.
 
+**Driving scenario (the real target, 2026-06-21):** the concrete workload behind
+"scaling out" is a **media-processing fleet** — two job types: light I/O
+*unpack/extract*, and CPU-heavy **AV1 encodes** (ffmpeg / SVT-AV1 / aomenc) that run
+as external *subprocesses*, each multi-threaded (3–4 threads). It runs across
+**heterogeneous VMs** (some many-core, some few), growing from one machine to many,
+maybe a GPU box later. The question that now grounds every scale-arc lesson: *keep
+each machine busy without oversubscribing its CPU — even though the heavy work hides
+inside a subprocess Prefect can't see.*
+
 ## Success looks like
 
 Original arc (done, L1–L7):
@@ -34,6 +43,13 @@ Expanded arc (in progress):
 - **Distribute execution within a run**: use task runners to run a flow's tasks
   concurrently (`ThreadPoolTaskRunner`) or in true parallel across cores
   (`ProcessPoolTaskRunner`), and know which fits I/O- vs CPU-bound work.
+- **Cap per-machine CPU saturation** when the heavy work is an invisible subprocess:
+  pool/queue limits (fleet-global) vs a **per-worker Global Concurrency Limit** with
+  `occupy` — `limit = cores`, `occupy = threads/encode` — so a fleet of mismatched
+  VMs never oversubscribes. ✓ L11.
+- **Route work by type, fan out across the fleet**: separate `extract` (I/O) and
+  `encode` (CPU) pools/queues, a worker per type per box, and dispatch encodes as
+  independent runs with `run_deployment`. (next)
 
 ## Constraints
 
@@ -50,6 +66,9 @@ Expanded arc (in progress):
 - Comparisons against Airflow / Dagster / Luigi.
 - Remote/managed infra: Kubernetes, ECS, cloud-hosted Docker workers. (Containers
   *locally* are fair game if a lesson needs them; remote clusters are not — yet.)
+  K8s is the *named* eventual graduation for the encode fleet — resource-aware
+  bin-packing by CPU request — but deferred until the local concurrency patterns
+  (per-worker limits, pool topology) are solid.
 - **Dask / Ray task runners** (`prefect-dask`, `prefect-ray`) — deferred for now.
   Focus is the built-in thread/process runners first; revisit cluster executors
   once those are solid.

@@ -1,0 +1,337 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 11 — Count runs, not cores</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 11 · Concurrency limits</p>
+    <h1>Count runs, not cores</h1>
+    <p class="subtitle">
+        In <a href="0009-distribute-the-work.html">L9</a> you reached for
+        <code>ProcessPoolTaskRunner</code> to push CPU work onto many cores. This is
+        the opposite problem: when the work is <em>already</em> maximally parallel — a
+        CPU-pinning AV1 encode in an external process — how do you stop a fleet of
+        mismatched machines from running <em>too much</em> at once?
+    </p>
+</header>
+
+<main>
+    <p>
+        Your encode flow barely computes in Python — it shells out:
+        <code>subprocess.run(["ffmpeg", …])</code> driving SVT-AV1. The win here:
+        <strong>size a per-machine concurrency cap so heterogeneous VMs stay busy
+        without ever oversubscribing CPU — even though Prefect can't see a single one
+        of the encoder's threads.</strong>
+    </p>
+
+    <h2>1 · The work is invisible to Prefect</h2>
+    <p>
+        The heavy CPU work, and the 3–4 threads it spreads across, live inside the
+        <em>child</em> process. To Prefect the task is just one box in
+        <span class="pill running">Running</span> — it has no idea four cores are
+        pinned. So the L9 reflex — "CPU-bound? reach for
+        <code>ProcessPoolTaskRunner</code>" — buys you <strong>nothing</strong> here:
+        there's no Python loop to spread across cores; the parallelism is already
+        inside ffmpeg. Threads-vs-processes is the wrong question. The right one is
+        <em>how many encodes do I let run at once on this machine?</em>
+    </p>
+    <div class="why">
+        <span class="label">Pin the encoder first — or nothing else matters</span>
+        ffmpeg, SVT-AV1, and aomenc <strong>auto-detect every core and grab them</strong>
+        by default. Before any orchestration, fix the thread count:
+        <code>-threads 4</code> (ffmpeg), <code>--lp 4</code> /
+        <code>-svtav1-params lp=4</code> (SVT-AV1), <code>--threads=4</code> (aomenc).
+        Now each encode has a <em>known cost</em>. Skip this and no Prefect limit can
+        save you — one un-pinned encode swallows the whole box.
+    </div>
+
+    <h2>2 · Every Prefect limit counts <em>runs</em></h2>
+    <p>
+        This is the mental shift. Prefect's concurrency controls count <em>runs</em> —
+        never cores, never the threads inside your subprocess. It can't see them, so it
+        will never protect your CPU automatically. <strong>You</strong> do the
+        arithmetic — cores ÷ threads-per-encode — and hand Prefect the number.
+    </p>
+
+    <h2>3 · Three limits — only one is per-machine</h2>
+    <table>
+        <tr><th>Limit</th><th>Scope</th><th>Good for</th></tr>
+        <tr>
+            <td>Work pool / queue limit<br /><code>work-pool set-concurrency-limit</code></td>
+            <td><strong>Fleet-global</strong> — shared by every worker polling the pool</td>
+            <td>A global cap: a shared NAS, licence seats, total egress</td>
+        </tr>
+        <tr>
+            <td>Worker run limit<br /><code>worker start --limit N</code></td>
+            <td><strong>Per worker</strong>, but counts <em>whole flow runs</em></td>
+            <td>A blunt per-machine cap; serialises the entire flow</td>
+        </tr>
+        <tr>
+            <td>Global Concurrency Limit + <code>occupy</code>, named per worker</td>
+            <td><strong>Per machine, weighted</strong></td>
+            <td><em>Exactly this</em> — cap CPU saturation per box</td>
+        </tr>
+    </table>
+    <p>
+        You met the first one on the
+        <a href="../reference/work-pools-cheatsheet.html">work-pools cheatsheet</a> —
+        and it's the trap. Set a pool limit to 4 and your <em>whole fleet</em> runs 4,
+        not 4-per-box. The worker <code>--limit</code> is per-machine but blunt: a light
+        unpack job waits behind a heavy encode. The precise tool is a <strong>Global
+        Concurrency Limit (GCL)</strong> you acquire in code and <em>name per
+        worker</em>.
+    </p>
+
+    <h2>4 · The per-machine recipe</h2>
+    <pre><code># 1. One limit per machine, sized to its cores (create it first —
+#    concurrency() will NOT auto-create it). The 16-core box:
+uv run prefect gcl create encode:big-cvm-1 --limit 16
+
+# 2. Start the worker carrying its own identity
+WORKER_ID=big-cvm-1 uv run prefect worker start --pool encode --limit 8</code></pre>
+    <pre><code># 3. Wrap the subprocess, occupying its thread cost
+import os, subprocess
+from prefect.concurrency.sync import concurrency
+
+worker_id = os.environ["WORKER_ID"]
+
+with concurrency(f"encode:{worker_id}", occupy=4):   # 4 threads → 4 slots
+    subprocess.run(["ffmpeg", "-threads", "4", ...], check=True)</code></pre>
+    <div class="try">
+        <span class="label">The whole idea in one line</span>
+        <strong>The limit is the machine's core budget; <code>occupy</code> is each
+        encode's cost.</strong> The 16-core box (<code>--limit 16</code>) admits four
+        4-thread encodes; the fifth blocks until one frees. The 4-core VM runs the
+        <em>same flow code</em> — just <code>gcl create encode:small-1 --limit 4</code>
+        → one encode. Heterogeneous fleet, one flow, a different budget per box.
+    </div>
+    <div class="note">
+        <span class="label">Why this beats <code>--limit 1</code></span>
+        The GCL gates only the encode block, so the flow's light unpack/setup tasks
+        still overlap — <em>"Using <code>--limit 1</code> on the worker forces entire
+        flow runs to be sequential. But often only specific tasks need limits."</em>
+        The server coordinates the count across every worker's separate
+        processes.<a class="cite" href="https://docs.prefect.io/v3/examples/per-worker-task-concurrency">1</a>
+    </div>
+
+    <h2>5 · Feel it — saturate a box</h2>
+    <p>
+        Default: a 16-core box running 4-thread encodes. Launch a fifth and watch it
+        block. Then shrink the box, or fatten each encode, and watch
+        <code>⌊cores / threads⌋</code> change.
+    </p>
+    <div class="sim" id="sat-sim">
+        <div class="controls">
+            <div class="ctl">
+                <span class="lbl">Machine cores — the limit (budget)</span>
+                <span class="seg" data-param="cores">
+                    <button data-val="4">4</button>
+                    <button data-val="8">8</button>
+                    <button data-val="16" class="active">16</button>
+                </span>
+            </div>
+            <div class="ctl">
+                <span class="lbl">Threads / encode — the occupy (cost)</span>
+                <span class="seg" data-param="threads">
+                    <button data-val="2">2</button>
+                    <button data-val="4" class="active">4</button>
+                    <button data-val="6">6</button>
+                </span>
+            </div>
+        </div>
+        <div class="track"></div>
+        <div class="readout"></div>
+        <div class="btns">
+            <button class="launch">▶ Launch an encode</button>
+            <button class="reset">Reset</button>
+        </div>
+        <div class="status"></div>
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="recall">
+        <div class="prompt">
+            In L9 you'd reach for <code>ProcessPoolTaskRunner</code> for CPU work. Your
+            encode shells out to SVT-AV1. Why is the runner the wrong tool, and what
+            replaces it? <span class="tag">L9·L11</span>
+        </div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">
+            There's no Python compute to parallelise — the CPU work and its threads
+            live in a <strong>subprocess</strong> the runner can't touch. The lever is a
+            <strong>concurrency limit</strong>: cap how many encodes run per machine.
+            <em>Count runs, not cores.</em>
+        </div>
+    </div>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            A work-pool concurrency limit of 4, with three workers polling it, allows
+            how many concurrent runs?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Four runs total across all workers</button>
+            <button class="opt" data-correct="false">Four runs on each separate worker</button>
+            <button class="opt" data-correct="false">Four runs only while workers idle</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            Each encode is a 4-thread ffmpeg subprocess; the box has 16 cores. The
+            per-worker GCL should be set how?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Limit sixteen, each encode occupies four</button>
+            <button class="opt" data-correct="false">Limit four, each encode occupies sixteen</button>
+            <button class="opt" data-correct="false">Limit four, each encode occupies one</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            Why won't <code>ProcessPoolTaskRunner</code> stop your encodes
+            oversubscribing the CPU?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">The heavy work runs in subprocesses</button>
+            <button class="opt" data-correct="false">The runner only parallelises Python threads</button>
+            <button class="opt" data-correct="false">The GIL already serialises the encodes</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/examples/per-worker-task-concurrency">Per-worker
+            task concurrency</a>. The exact pattern: a Global Concurrency Limit named by
+            <code>WORKER_ID</code>, acquired with <code>occupy=</code>. Verified against
+            the docs for our <code>3.7.5.dev4</code> build.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Next rung is the
+        <em>topology</em>: separate <code>extract</code> and <code>encode</code> pools so
+        light I/O jobs never queue behind heavy encodes, and routing work to the right
+        machine class. Want a runnable <code>10_concurrency_limits.py</code> for your
+        Docker stack? Or the boundary where static limits stop being enough and
+        Kubernetes packs jobs by CPU request (currently
+        <a href="../MISSION.md">out of scope</a>)? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/concurrency-cheatsheet.html">Concurrency cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): pools &amp; queues by job type ⏭</span>
+    </div>
+</main>
+
+<script>
+    // ---- Saturation simulator: budget (cores) vs occupy (threads/encode) ----
+    (function () {
+        var sim = document.getElementById("sat-sim");
+        if (!sim) return;
+        var palette = ["#0a4fa0", "#1f7a4d", "#9a6b00", "#5a4b8a", "#2f6f6a", "#c2410c"];
+        var cores = 16, threads = 4, nextId = 0, running = [], waiting = 0;
+        var track = sim.querySelector(".track");
+        var readout = sim.querySelector(".readout");
+        var status = sim.querySelector(".status");
+
+        function used() { return running.reduce(function (s, e) { return s + e.occupy; }, 0); }
+        function maxConc() { return Math.floor(cores / threads); }
+
+        function render() {
+            track.innerHTML = "";
+            var fill = [];
+            running.forEach(function (e) { for (var i = 0; i < e.occupy; i++) fill.push(e.color); });
+            for (var c = 0; c < cores; c++) {
+                var cell = document.createElement("div");
+                cell.className = "core" + (c < fill.length ? " used" : "");
+                if (c < fill.length) cell.style.background = fill[c];
+                track.appendChild(cell);
+            }
+            readout.innerHTML =
+                "limit (cores) = <strong>" + cores + "</strong> &nbsp;·&nbsp; occupy (threads/encode) = <strong>" +
+                threads + "</strong> &nbsp;·&nbsp; max concurrent = ⌊" + cores + "/" + threads +
+                "⌋ = <strong>" + maxConc() + "</strong>";
+            var s = "Running <strong>" + running.length + "</strong> encode(s) — using <strong>" +
+                used() + "/" + cores + "</strong> cores.";
+            if (waiting > 0) s += " <span class='blocked'>" + waiting + " blocked</span>, waiting for a slot.";
+            status.innerHTML = s;
+        }
+
+        function complete(id) {
+            running = running.filter(function (e) { return e.id !== id; });
+            while (waiting > 0 && used() + threads <= cores) { waiting--; spawn(); }
+            render();
+        }
+
+        function spawn() {
+            var e = { id: nextId++, occupy: threads, color: palette[nextId % palette.length] };
+            running.push(e);
+            setTimeout(function () { complete(e.id); }, 3600);
+        }
+
+        function launch() {
+            if (threads > cores) {
+                status.innerHTML = "<span class='blocked'>Blocked</span> — one encode needs " + threads +
+                    " cores but the box has only " + cores + ". Too big for this machine.";
+                return;
+            }
+            if (used() + threads <= cores) { spawn(); }
+            else { waiting++; }
+            render();
+        }
+
+        function reset() { running = []; waiting = 0; render(); }
+
+        sim.querySelectorAll(".seg").forEach(function (seg) {
+            var param = seg.dataset.param;
+            seg.querySelectorAll("button").forEach(function (b) {
+                b.addEventListener("click", function () {
+                    if (param === "cores") cores = parseInt(b.dataset.val, 10);
+                    else threads = parseInt(b.dataset.val, 10);
+                    seg.querySelectorAll("button").forEach(function (x) { x.classList.remove("active"); });
+                    b.classList.add("active");
+                    reset();
+                });
+            });
+        });
+        sim.querySelector(".launch").addEventListener("click", launch);
+        sim.querySelector(".reset").addEventListener("click", reset);
+        render();
+    })();
+
+    // ---- Recall card: reveal on click ----
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // ---- Scenario quizzes (same widget as every other lesson) ----
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) { b.disabled = true; });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector('button.opt[data-correct="true"]');
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. The limit is the budget; occupy is the cost."
+                    : "✗ Not quite — the highlighted answer is correct. Check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

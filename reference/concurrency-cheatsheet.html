@@ -1,0 +1,78 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concurrency limits — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Concurrency limits</p>
+  <h1>Concurrency &amp; CPU saturation</h1>
+  <p class="subtitle">Prefect counts <em>runs</em>, not cores. Cap a heterogeneous fleet without oversubscribing. Copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>The reframe</h2>
+  <p class="why"><span class="label">Count runs, not cores</span> Every Prefect limit counts <em>runs</em> (or task acquisitions) — never cores, and never the threads inside a subprocess (ffmpeg/SVT-AV1). Prefect can't see them, so it won't protect your CPU on its own. You compute <code>cores ÷ threads-per-encode</code> and hand it the number.</p>
+
+  <h2>Three scopes — pick by what you're capping</h2>
+  <table>
+    <tr><th>Limit</th><th>Scope</th><th>Use for</th></tr>
+    <tr><td>Pool / queue limit</td><td><strong>Fleet-global</strong> (all workers share the count)</td><td>A global cap: shared NAS, licence seats, egress</td></tr>
+    <tr><td>Worker <code>--limit N</code></td><td><strong>Per worker</strong>, but whole flow runs</td><td>Blunt per-machine cap; serialises the whole flow</td></tr>
+    <tr><td>GCL + <code>occupy</code>, named per worker</td><td><strong>Per machine, weighted</strong></td><td>Per-box CPU saturation — the right tool here</td></tr>
+  </table>
+
+  <h2>Per-machine recipe (process pool, all local)</h2>
+  <pre><code># 0. PIN THE ENCODER — or no limit can help you.
+#    ffmpeg -threads 4 · SVT-AV1 --lp 4 · aomenc --threads=4
+
+# 1. One GCL per machine, sized to its cores. Create it FIRST —
+#    concurrency() does not auto-create limits.
+uv run prefect gcl create encode:big-cvm-1 --limit 16   # 16-core box
+uv run prefect gcl create encode:small-1   --limit 4    # 4-core box
+
+# 2. Start each worker carrying its identity
+WORKER_ID=big-cvm-1 uv run prefect worker start --pool encode --limit 8
+
+# 3. In the flow, gate the subprocess by its thread cost
+from prefect.concurrency.sync import concurrency
+import os, subprocess
+wid = os.environ["WORKER_ID"]
+with concurrency(f"encode:{wid}", occupy=4):     # 4 threads → 4 slots
+    subprocess.run(["ffmpeg", "-threads", "4", ...], check=True)</code></pre>
+  <p class="try"><span class="label">The formula</span> <strong>limit = the machine's core budget · <code>occupy</code> = each encode's thread cost.</strong> A 16-core box admits ⌊16/4⌋ = 4 concurrent 4-thread encodes. Same flow code on every machine; only the limit number differs per box.</p>
+
+  <h2>GCL CLI</h2>
+  <table>
+    <tr><th>Command</th><th>Use</th></tr>
+    <tr><td><code>gcl create &lt;name&gt; --limit N</code></td><td>Create a Global Concurrency Limit (must exist before <code>concurrency()</code> uses it).</td></tr>
+    <tr><td><code>gcl ls</code></td><td>List limits and their current active slots.</td></tr>
+    <tr><td><code>gcl inspect &lt;name&gt;</code></td><td>Limit config + live occupancy.</td></tr>
+    <tr><td><code>gcl update &lt;name&gt; --limit N</code></td><td>Resize a machine's budget (e.g. after adding cores).</td></tr>
+    <tr><td><code>work-pool set-concurrency-limit &lt;n&gt; &lt;N&gt;</code></td><td>The <em>fleet-global</em> pool cap — different tool, different scope.</td></tr>
+  </table>
+  <p><code>concurrency()</code> is sync; use <code>from prefect.concurrency.asyncio import concurrency</code> + <code>async with</code> in async flows. Acquiring without releasing (a pure cap, no wrapping) is what <code>rate_limit()</code> is for.</p>
+
+  <h2>Gotchas</h2>
+  <div class="note">
+    <span class="label">Things that bite</span>
+    <ul style="margin:0.4rem 0 0">
+      <li><strong>Encoder ignores your limit</strong> → it auto-detected all cores. Pin <code>-threads</code>/<code>--lp</code>; <code>occupy</code> only describes a cost you actually enforce.</li>
+      <li><strong>Pool limit ≠ per-machine</strong> → a pool cap of 4 means 4 across the whole fleet, not per box. Use a per-worker GCL.</li>
+      <li><strong>Limit doesn't exist</strong> → <code>concurrency()</code> won't create it; <code>gcl create</code> first or the run errors.</li>
+      <li><strong>Blocked run still holds a worker slot</strong> → a run parked on <code>concurrency()</code> is already a live process. Size <code>--limit</code> sanely so you don't spawn far more than can run.</li>
+    </ul>
+  </div>
+
+  <h2>Beyond Prefect (the boundary)</h2>
+  <p>Prefect orchestrates (what/when/retries); it is <strong>not</strong> a resource scheduler. For a hard CPU cap regardless of the encoder, wrap the subprocess in <code>cgroups</code>/<code>taskset</code> (OS layer). When static per-machine limits start stranding cores on a large heterogeneous fleet, that's the signal to move the <code>encode</code> pool onto Kubernetes and let it pack jobs by CPU <em>request</em> — <a href="../MISSION.md">out of scope for now</a>.</p>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/examples/per-worker-task-concurrency">Per-worker task concurrency</a> (the GCL-named-by-<code>WORKER_ID</code> pattern with <code>occupy</code>).</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0011-count-runs-not-cores.html">← Lesson 11: Count runs, not cores</a></span>
+    <span><a href="work-pools-cheatsheet.html">Work pools cheatsheet</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>

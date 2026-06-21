@@ -4,7 +4,10 @@ Working notes on how to teach this user. Update as preferences surface.
 
 ## Preferences
 
-- _(none recorded yet)_
+- **Challenge me — reason from first principles.** The learner explicitly wants
+  design questions stress-tested: push back on wrong framing, don't just agree, and
+  lead with tradeoffs and the materially-better alternative rather than the happy
+  path. (Surfaced in the AV1 architecture conversation that seeded lesson 0011.)
 
 ## Context
 
@@ -32,6 +35,13 @@ Working notes on how to teach this user. Update as preferences surface.
   they live in MinIO, not the server DB.
 - JS tooling via `bun`; Python lint/format via `uv run ruff`. Conventional Commits
   enforced by commitlint; pre-commit runs lint.
+- **Real-world driver (the actual goal behind the scale arc):** a _media-processing_
+  workload on a self-hosted Prefect server — two job types: (a) light I/O
+  unpack/extract and (b) CPU-heavy **AV1 encodes** (ffmpeg / SVT-AV1 / aomenc) that
+  run as external **subprocesses**, each multi-threaded (3–4 threads). Fleet of
+  **heterogeneous VMs** (some many-core, some few), growing 1 → many, possibly a GPU
+  box later. Goal: saturate CPU without oversubscribing. Grounds lessons from 0011
+  on. (Candidate to fold into `MISSION.md` as the named scenario — confirm first.)
 
 ## Course arc (tentative — toward the mission)
 
@@ -59,8 +69,14 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
    (lesson 0009). Dask/Ray explicitly OUT of scope (learner's call).
 10. **Review & retrieve** — interleaved spaced-retrieval across L1–L9; new
     `.recall` flip-card component. ← done (lesson 0010). No new material.
-11. (next) Let **spacing** work: have the learner redo L10 _cold in a few days_ and
-    report which L# tags tripped them up → target those. New content only if
-    reopened: combining task runner + work pool; `max_workers`; async /
-    `ConcurrentTaskRunner`; deployment `parameters=`; UI Automation walkthrough;
-    multiple workers / pool concurrency; (much later) Dask/Ray.
+11. **Count runs, not cores** — concurrency limits for per-machine CPU saturation:
+    pool/queue (fleet-global) vs worker `--limit` vs **per-worker GCL + `occupy`**.
+    Grounded in the learner's real **AV1 encode fleet**; extends L9 (subprocess CPU
+    work → the task runner is the wrong lever). New reusable `.sim` widget; K8s /
+    cgroups named as horizon only, kept out of scope. ← done (lesson 0011).
+12. (next) Either (a) **topology** — separate `extract`/`encode` pools + queues, two
+    workers per box, `run_deployment` to fan encodes across the fleet; or (b) the
+    overdue **cold redo of L10** (let spacing work; report which L# tags slipped).
+    Standing threads: `max_workers`; async / `ConcurrentTaskRunner`; deployment
+    `parameters=`; multiple workers / pool concurrency; a runnable
+    `10_concurrency_limits.py`; (much later) the K8s graduation; Dask/Ray.

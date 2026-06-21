@@ -37,6 +37,12 @@
   COS-specifics: bucket name `<name>-<APPID>`, endpoint
   `https://cos.<region>.myqcloud.com`, SecretId/SecretKey. Use for: the COS side
   of the S3Bucket block config.
+- [Prefect 3 — Per-worker task concurrency (example)](https://docs.prefect.io/v3/examples/per-worker-task-concurrency)
+  The Global Concurrency Limit pattern: a limit named by `WORKER_ID`, acquired with
+  `concurrency(name, occupy=N)`, to cap per-machine CPU saturation without
+  oversubscribing. Create the limit first (`prefect gcl create` — not auto-created).
+  Use for: lesson 0011 + the concurrency cheatsheet. (URL + behavior verified against
+  the docs for `3.7.5.dev4`.)
 - [Prefect API & CLI reference](https://docs.prefect.io/v3/api-ref/cli)
   Use for: `prefect server start`, `prefect flow-runs ls`, deployment commands.
 - [Prefect GitHub repo](https://github.com/PrefectHQ/prefect)

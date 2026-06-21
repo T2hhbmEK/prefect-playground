@@ -227,6 +227,50 @@ th { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.78rem; text
 .recall.shown button.reveal { display: none; }
 .recall .answer strong { color: var(--ink); }
 
+/* ---- Saturation simulator (concurrency budget vs occupy cost) ---- */
+.sim {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1.3rem 1.4rem;
+  margin: 1.6rem 0;
+  background: #fff;
+}
+.sim .controls { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-bottom: 1rem; }
+.sim .ctl { font-family: ui-sans-serif, system-ui, sans-serif; }
+.sim .ctl > .lbl {
+  display: block;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.64rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+.sim .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.sim .seg button {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.85rem;
+  border: none;
+  border-right: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+}
+.sim .seg button:last-child { border-right: none; }
+.sim .seg button.active { background: var(--accent); color: #fff; }
+.sim .track { display: flex; flex-wrap: wrap; gap: 4px; margin: 0.2rem 0 0.8rem; }
+.sim .core { width: 26px; height: 26px; border-radius: 5px; background: var(--code-bg); border: 1px solid var(--rule); transition: background 0.15s; }
+.sim .core.used { border-color: transparent; }
+.sim .readout { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--ink-soft); margin-bottom: 0.7rem; }
+.sim .readout strong { color: var(--ink); }
+.sim .btns { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.sim .btns button { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; font-weight: 600; padding: 0.45rem 1rem; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); }
+.sim .btns .launch { background: var(--accent); color: #fff; }
+.sim .btns .reset { background: var(--paper); color: var(--accent); }
+.sim .status { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.86rem; margin-top: 0.8rem; min-height: 1.2em; color: var(--ink-soft); }
+.sim .status strong { color: var(--ink); }
+.sim .status .blocked { color: var(--bad); font-weight: 700; }
+
 /* ---- Footer / nav ---- */
 .lesson-nav {
   margin-top: 3.5rem;
