@@ -291,6 +291,31 @@ th { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.78rem; text
 .fleet .readout { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.5; }
 .fleet .readout strong { color: var(--ink); }
 
+/* ---- Batch board (gather distributed runs: partial failure + retry) ---- */
+.batch { border: 1px solid var(--rule); border-radius: 10px; padding: 1.3rem 1.4rem; margin: 1.6rem 0; background: #fff; }
+.batch .controls { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: flex-end; margin-bottom: 1rem; }
+.batch .lbl { display: block; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.64rem; font-weight: 700; margin-bottom: 0.35rem; }
+.batch .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.batch .seg button { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.82rem; border: none; border-right: 1px solid var(--rule); background: var(--paper); padding: 0.35rem 0.85rem; cursor: pointer; }
+.batch .seg button:last-child { border-right: none; }
+.batch .seg button.active { background: var(--accent); color: #fff; }
+.batch .btns { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.batch .btns button { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; font-weight: 600; padding: 0.45rem 1rem; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); }
+.batch .btns .run { background: var(--accent); color: #fff; }
+.batch .btns .retry { background: var(--paper); color: var(--accent); }
+.batch .btns button:disabled { opacity: 0.4; cursor: not-allowed; }
+.batch .segs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0.4rem 0 0.9rem; }
+.batch .seg-chip { width: 40px; height: 30px; border-radius: 5px; background: var(--code-bg); border: 1px solid var(--rule); font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.66rem; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; transition: background 0.18s, color 0.18s, border-color 0.18s, opacity 0.18s; }
+.batch .seg-chip.running  { background: #e8eff7; color: var(--accent); border-color: transparent; }
+.batch .seg-chip.completed{ background: #e3f3ea; color: var(--good); border-color: transparent; }
+.batch .seg-chip.failed   { background: #fbe6e4; color: var(--bad);  border-color: transparent; }
+.batch .seg-chip.reused   { background: #e7f1ef; color: #2f6f6a; border-color: transparent; }
+.batch .seg-chip.lost     { opacity: 0.35; }
+.batch .readout { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.55; min-height: 2.6em; }
+.batch .readout strong { color: var(--ink); }
+.batch .readout .ok  { color: var(--good); font-weight: 700; }
+.batch .readout .err { color: var(--bad);  font-weight: 700; }
+
 /* ---- Footer / nav ---- */
 .lesson-nav {
   margin-top: 3.5rem;

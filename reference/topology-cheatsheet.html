@@ -62,6 +62,31 @@ def process_archive(archive: str):
     <tr><td><code>work_queue_name=…</code></td><td>Target a specific queue within the deployment's pool (e.g. route by machine class).</td></tr>
   </table>
 
+  <h2>Gather the fan-out <span class="cite">L13</span></h2>
+  <pre><code>from prefect.flow_runs import wait_for_flow_run
+
+runs = [run_deployment("encode-segment/encode",
+                       parameters={"segment": s}, timeout=0,
+                       idempotency_key=f"{archive}:{s}")   # stable → safe coordinator retry
+        for s in segments]                                 # fire ALL first
+
+finished = [wait_for_flow_run(r.id) for r in runs]         # then gather each
+
+done, failed = [], []
+for fr in finished:
+    if fr.state.is_completed():
+        done.append(fr.state.result())                     # needs persisted results (L4)
+    else:
+        failed.append(fr.parameters["segment"])            # raise_on_failure=False → record, don't sink</code></pre>
+  <table>
+    <tr><th>Need</th><th>Use</th></tr>
+    <tr><td>All running at once, results later</td><td>Fire every run with <code>timeout=0</code>, <em>then</em> <code>wait_for_flow_run(id)</code> on each — never block as you create.</td></tr>
+    <tr><td>Did each finish?</td><td><code>fr.state.is_completed()</code> / <code>is_failed()</code> — state lives in the server DB, always available.</td></tr>
+    <tr><td>The return value across machines</td><td><code>fr.state.result()</code> — needs <strong>persisted results in shared storage</strong> (MinIO/S3, L4); otherwise gather states only.</td></tr>
+    <tr><td>Keep good results when some fail</td><td><code>state.result(raise_on_failure=False)</code> returns the exception instead of raising. Filter, re-dispatch only failures.</td></tr>
+    <tr><td>Safe coordinator retry</td><td><code>idempotency_key</code> from <strong>stable</strong> inputs (<code>archive:segment</code>) — a rerun reuses finished runs, never double-encodes. Random keys defeat it.</td></tr>
+  </table>
+
   <h2>Gotchas</h2>
   <div class="note">
     <span class="label">Things that bite</span>
@@ -79,7 +104,7 @@ def process_archive(archive: str):
   </div>
 
   <div class="lesson-nav">
-    <span><a href="../lessons/0012-fan-out-the-fleet.html">← Lesson 12: Fan out across the fleet</a></span>
+    <span><a href="../lessons/0012-fan-out-the-fleet.html">← L12: Fan out</a> · <a href="../lessons/0013-gather-the-fan-out.html">L13: Gather →</a></span>
     <span><a href="concurrency-cheatsheet.html">Concurrency cheatsheet</a> · <a href="work-pools-cheatsheet.html">Work pools</a> · <a href="glossary.html">Glossary</a></span>
   </div>
 </main>

@@ -53,7 +53,7 @@ baseline) and `0008-mission-expanded-scale` (the 2026-06-21 scope change).
 
 - `0001`–`0007` ↔ **L1–L7** (aligned)
 - `0008-mission-expanded-scale` ↔ **—** (decision record, no lesson — the +1 starts here)
-- `0009` / `0010` / `0011` / `0012` ↔ **L8** / **L9** / **L10** / **L11**
+- `0009` / `0010` / `0011` / `0012` / `0013` / `0014` ↔ **L8** / **L9** / **L10** / **L11** / **L12** / **L13**
 
 Don't renumber to "align" them: records cross-link by slug via wikilinks
 (`[[0008-mission-expanded-scale]]` alone is referenced by 0009, 0010, and 0012), so
@@ -95,10 +95,18 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
     `run_deployment(..., timeout=0)` to dispatch each encode as its own distributed
     flow run (vs a direct subflow / `.map`, which stay on one machine). New `.fleet`
     widget; verified `run_deployment` / `as_subflow` behaviour. ← done (lesson 0012).
-13. (next) Candidates: **gather/await the fan-out** (collect encode results,
-    `idempotency_key` for safe retries, partial-failure handling); a **GPU pool**
-    routed by machine class (`work_queue_name`); a runnable end-to-end demo on the
-    Docker stack; or a **cold redo of L10** (spacing: 2 lessons of new material since —
-    L11, L12 — and the trigger is elapsed calendar time, not lesson count).
-    Standing: `max_workers`; async / `ConcurrentTaskRunner`; (much later) the K8s
-    graduation; Dask/Ray.
+13. **Gather the fan-out** — the second half of L12: fire all encodes (`timeout=0`),
+    then `wait_for_flow_run` each; partial failure via `state.result(raise_on_failure=
+    False)`; safe coordinator retry via `idempotency_key` from _stable_ inputs;
+    results-vs-states across machines (ties back to L4 — return values need persisted
+    shared storage). New reusable `.batch` widget; verified `wait_for_flow_run` /
+    `State` predicates against the build. ← done (lesson 0013).
+14. (next) Candidates, in rough priority: **the runnable end-to-end demo** on the
+    Docker stack (extract + encode pools, two workers, this gather coordinator) — now
+    offered three lessons running, the arc is theory-heavy with nothing actually run;
+    **async fan-out/gather** (`arun_deployment` + `asyncio.gather`, now directly
+    motivated since L13 exposed serial polling as the cost) — the overdue async thread;
+    a **GPU pool** routed by machine class (`work_queue_name`); or a **cold redo of
+    L10** (spacing: 3 lessons of new material since — L11–L13 — though the trigger is
+    elapsed calendar time, not lesson count). Standing: `max_workers`; (much later)
+    the K8s graduation; Dask/Ray.

@@ -1,0 +1,356 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 13 — Gather the fan-out</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 13 · Coordinating distributed runs</p>
+    <h1>Gather the fan-out</h1>
+    <p class="subtitle">
+        <a href="0012-fan-out-the-fleet.html">L12</a> fired each encode off
+        <em>fire-and-forget</em> (<code>timeout=0</code>) and walked away. But a real
+        coordinator has to come back: did all 30 segments finish? What if 2 crashed —
+        and what if the coordinator <em>itself</em> dies and reruns?
+    </p>
+</header>
+
+<main>
+    <p>
+        The win here: <strong>fire all the encodes at once, then wait on them as a
+        batch — collect what finished, isolate what failed, and make a coordinator
+        retry safe so it never double-encodes.</strong> This is the other half of
+        fan-out: L12 scattered the work, L13 picks the pieces back up.
+    </p>
+
+    <h2>1 · Fire all, then gather</h2>
+    <p>
+        <code>timeout=0</code> returns the instant each run is <em>created</em>, so the
+        loop dispatches all 30 in a blink. To learn their fates, wait on each
+        afterwards with <code>wait_for_flow_run</code> — it polls until the run reaches
+        a final state and hands back the finished <code>FlowRun</code>.
+    </p>
+    <pre><code>from prefect import flow
+from prefect.deployments import run_deployment
+from prefect.flow_runs import wait_for_flow_run
+
+@flow   # deployed to the `extract` pool
+def process_archive(archive: str):
+    segments = unpack(archive)
+
+    runs = [                                    # ── fan out (L12): create all, don't wait
+        run_deployment("encode-segment/encode",
+                       parameters={"segment": s}, timeout=0)
+        for s in segments
+    ]
+    finished = [wait_for_flow_run(r.id) for r in runs]   # ── gather: now block on each</code></pre>
+    <div class="why">
+        <span class="label">Why not just drop <code>timeout=0</code>?</span>
+        Letting <code>run_deployment</code> block (its default) waits on each encode
+        <strong>serially</strong> — segment 2 can't start its wait until segment 1
+        finishes. You'd lose all the fleet parallelism L12 bought. <strong>Fire every
+        run first, then wait</strong> — all 30 encode at once while the coordinator
+        watches.
+    </div>
+
+    <h2>2 · Survive partial failure</h2>
+    <p>
+        Across 30 encodes on heterogeneous VMs, one <em>will</em> trip — a corrupt
+        segment, an OOM, a flaky disk. By default reading a failed run's result
+        <strong>re-raises</strong> the exception, which would sink the whole
+        coordinator and lose the 29 good results. Pass
+        <code>raise_on_failure=False</code> to get the outcome back as a value and
+        decide for yourself:
+    </p>
+    <pre><code>    done, failed = [], []
+    for fr in finished:
+        if fr.state.is_completed():
+            done.append(fr.state.result())                 # the encoded segment
+        else:
+            failed.append(fr.parameters["segment"])        # don't raise — record it
+
+    if failed:                                             # re-dispatch ONLY the failures
+        retry_segments(failed)
+    return {"ok": len(done), "failed": failed}</code></pre>
+    <div class="note">
+        <span class="label">Gathering <em>results</em> vs <em>states</em> (ties back to <a href="0004-results-and-cos.html">L4</a>)</span>
+        Each encode ran on a <strong>different machine</strong>. Its return value only
+        comes back if the deployment <strong>persists results to shared storage</strong>
+        (your MinIO bucket) — otherwise <code>state.result()</code> has nothing to
+        deserialize. The run's <em>state</em> (<span class="pill completed">Completed</span>
+        / <span class="pill failed">Failed</span>) always lives in the server DB, so
+        checking <em>whether</em> each finished works regardless. For encodes, persist
+        the output path, not the bytes.
+    </div>
+
+    <h2>3 · Make the retry safe — <code>idempotency_key</code></h2>
+    <p>
+        Now the nasty case: the coordinator crashes <em>after</em> dispatching but
+        before gathering, and Prefect retries it. Without protection it fans out all 30
+        encodes <strong>again</strong> — double the CPU, duplicate outputs. An
+        <code>idempotency_key</code> built from <em>stable</em> inputs fixes this: a
+        second create with a key Prefect has already seen returns the
+        <strong>existing</strong> run instead of making a new one.
+    </p>
+    <pre><code>        run_deployment("encode-segment/encode",
+                       parameters={"segment": s},
+                       timeout=0,
+                       idempotency_key=f"{archive}:{s}")   # stable, NOT random</code></pre>
+    <div class="why">
+        <span class="label">The key must be deterministic</span>
+        Derive it from the work itself (<code>archive</code> + <code>segment</code>), so
+        the <em>same</em> segment always produces the <em>same</em> key. A random/UUID
+        key defeats the whole point — every retry looks new. Same key → Prefect reuses
+        the run; the already-completed encodes are skipped, not redone.
+    </div>
+
+    <h2>4 · Watch a batch come back</h2>
+    <p>
+        6 segments; #3 and #5 are doomed to fail. Pick how the coordinator gathers, run
+        the batch, then hit <strong>Retry coordinator</strong> to see what
+        <code>idempotency_key</code> does on a rerun.
+    </p>
+    <div class="batch" id="batch-sim">
+        <div class="controls">
+            <div>
+                <span class="lbl">How the coordinator gathers</span>
+                <span class="seg">
+                    <button data-mode="raise">block &amp; raise on first failure</button>
+                    <button data-mode="gather" class="active">gather &amp; isolate failures</button>
+                </span>
+            </div>
+            <div class="btns">
+                <button class="run">▶ Run batch</button>
+                <button class="retry" disabled>↻ Retry coordinator</button>
+            </div>
+        </div>
+        <div class="segs"></div>
+        <div class="readout"></div>
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="recall">
+        <div class="prompt">
+            In <a href="0012-fan-out-the-fleet.html">L12</a> you fired encodes with
+            <code>timeout=0</code> and returned their IDs. What single call turns those
+            IDs back into known outcomes — and why fire <em>all</em> before waiting on
+            <em>any</em>? <span class="tag">L12·L13</span>
+        </div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">
+            <code>wait_for_flow_run(id)</code> polls a run to its final state and returns
+            the finished <code>FlowRun</code>. Fire all first because waiting is
+            <strong>serial</strong> — block on each as you create it and the encodes run
+            one-at-a-time, throwing away the fleet parallelism. Create all 30, <em>then</em>
+            gather.
+        </div>
+    </div>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You want all encodes running at once but still need their results. What's the order?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Create every run, then wait on each one</button>
+            <button class="opt" data-correct="false">Wait on each run as you create them</button>
+            <button class="opt" data-correct="false">Map the encodes inside one flow run</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            Two of thirty encodes fail. How do you keep the other 28 results?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Read each state with raise_on_failure set false</button>
+            <button class="opt" data-correct="false">Wrap the whole gather loop in retries</button>
+            <button class="opt" data-correct="false">Raise on the first failed segment found</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            A retried coordinator must not re-encode finished segments. The key should be…
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Derived from the archive and segment name</button>
+            <button class="opt" data-correct="false">A fresh random UUID for each attempt</button>
+            <button class="opt" data-correct="false">The current timestamp at dispatch time</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">Run
+            deployments</a> (timeout, <code>idempotency_key</code>) and the
+            <a href="https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs">flow-runs
+            API</a> for <code>wait_for_flow_run</code> and reading
+            <code>state.result()</code>. Verified for our <code>3.7.5.dev4</code> build.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want the <em>async</em>
+        gather (<code>arun_deployment</code> + <code>asyncio.gather</code>, so the waits
+        truly overlap), a re-dispatch loop that retries only failed segments a bounded
+        number of times, or finally a <em>runnable</em> end-to-end demo (extract +
+        encode pools, two workers, this coordinator) on your Docker stack? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): async gather, a re-dispatch loop, or the end-to-end demo ⏭</span>
+    </div>
+</main>
+
+<script>
+    // ---- Batch board: gather distributed runs, partial failure, idempotent retry ----
+    (function () {
+        var w = document.getElementById("batch-sim");
+        if (!w) return;
+        var N = 6;
+        var DOOMED = { 2: true, 4: true };          // segments #3 and #5 (0-indexed) fail
+        var mode = "gather";
+        var segsBox = w.querySelector(".segs");
+        var readout = w.querySelector(".readout");
+        var runBtn = w.querySelector(".run");
+        var retryBtn = w.querySelector(".retry");
+        var state = [];                             // per-segment: pending|completed|failed
+        var timers = [];
+
+        function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+        function paint() {
+            segsBox.innerHTML = "";
+            for (var i = 0; i < N; i++) {
+                var c = document.createElement("div");
+                var s = state[i] || "pending";
+                c.className = "seg-chip" + (s === "pending" ? "" : " " + s);
+                c.textContent = "s" + (i + 1);
+                segsBox.appendChild(c);
+            }
+        }
+
+        function reset() {
+            clearTimers();
+            state = [];
+            for (var i = 0; i < N; i++) state[i] = "pending";
+            retryBtn.disabled = true;
+            runBtn.disabled = false;
+            paint();
+            readout.innerHTML = "Ready. Pick a strategy, then <strong>Run batch</strong>.";
+        }
+
+        function settle(i, after) {
+            timers.push(setTimeout(function () {
+                if (mode === "raise" && DOOMED[i]) {
+                    // first failure aborts the coordinator; later segments are lost
+                    state[i] = "failed";
+                    for (var j = 0; j < N; j++) if (state[j] === "running" || state[j] === "pending") state[j] = "lost";
+                    paint();
+                    clearTimers();
+                    readout.innerHTML = "<span class='err'>✗ Coordinator FAILED.</span> Reading s" + (i + 1) +
+                        "'s result re-raised, so the flow crashed — the other segments' outcomes are <strong>lost</strong>. One bad segment sank the batch.";
+                    runBtn.disabled = false;
+                    return;
+                }
+                state[i] = DOOMED[i] ? "failed" : "completed";
+                paint();
+                if (state.every(function (s) { return s === "completed" || s === "failed"; })) finish();
+            }, after));
+        }
+
+        function finish() {
+            var done = state.filter(function (s) { return s === "completed"; }).length;
+            var failed = [];
+            for (var i = 0; i < N; i++) if (state[i] === "failed") failed.push("s" + (i + 1));
+            readout.innerHTML = "<span class='ok'>✓ Gathered all " + N + ".</span> <strong>" + done +
+                " completed</strong>, <span class='err'>" + failed.length + " failed</span> (" + failed.join(", ") +
+                "). The good results are kept; re-dispatch only the failures. → <strong>Retry coordinator</strong>.";
+            retryBtn.disabled = false;
+            runBtn.disabled = false;
+        }
+
+        function run() {
+            clearTimers();
+            runBtn.disabled = true;
+            retryBtn.disabled = true;
+            for (var i = 0; i < N; i++) state[i] = "running";
+            paint();
+            readout.innerHTML = mode === "raise"
+                ? "All 6 fired. Blocking on each in order, raising on the first failure…"
+                : "All 6 fired (<code>timeout=0</code>). Gathering each with <code>wait_for_flow_run</code>…";
+            for (var k = 0; k < N; k++) settle(k, 500 + k * 320);
+        }
+
+        function retry() {
+            // idempotency_key: completed runs are reused, only failed ones re-encode (and now succeed)
+            clearTimers();
+            retryBtn.disabled = true;
+            runBtn.disabled = true;
+            var reused = 0, redo = [];
+            for (var i = 0; i < N; i++) {
+                if (state[i] === "completed") { state[i] = "reused"; reused++; }
+                else if (state[i] === "failed") { redo.push(i); state[i] = "running"; }
+            }
+            paint();
+            readout.innerHTML = "Coordinator reran. <strong>" + reused + " keys already seen → runs reused</strong> (not re-encoded). Re-encoding " + redo.length + " failed segment(s)…";
+            redo.forEach(function (i, n) {
+                timers.push(setTimeout(function () {
+                    state[i] = "completed";
+                    paint();
+                    if (redo.every(function (j) { return state[j] === "completed"; })) {
+                        readout.innerHTML = "<span class='ok'>✓ Idempotent retry done.</span> <strong>" + reused +
+                            " completed runs reused</strong> via <code>idempotency_key</code> — only the failed segment(s) re-encoded. No wasted CPU, no duplicates.";
+                        runBtn.disabled = false;
+                    }
+                }, 500 + n * 360));
+            });
+        }
+
+        w.querySelectorAll(".seg button").forEach(function (b) {
+            b.addEventListener("click", function () {
+                mode = b.dataset.mode;
+                w.querySelectorAll(".seg button").forEach(function (x) { x.classList.remove("active"); });
+                b.classList.add("active");
+                reset();
+            });
+        });
+        runBtn.addEventListener("click", run);
+        retryBtn.addEventListener("click", retry);
+        reset();
+    })();
+
+    // ---- Recall card: reveal on click ----
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // ---- Scenario quizzes (same widget as every other lesson) ----
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) { b.disabled = true; });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector('button.opt[data-correct="true"]');
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. Fire all, gather safely, retry without redoing."
+                    : "✗ Not quite — the highlighted answer is correct. Check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

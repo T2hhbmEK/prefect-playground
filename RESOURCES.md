@@ -43,6 +43,15 @@
   oversubscribing. Create the limit first (`prefect gcl create` — not auto-created).
   Use for: lesson 0011 + the concurrency cheatsheet. (URL + behavior verified against
   the docs for `3.7.5.dev4`.)
+- [Prefect 3 — Run deployments (how-to)](https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments)
+  `run_deployment` parameters, `timeout` (0 = fire-and-forget), and `idempotency_key`
+  for safe coordinator retries. Use for: fan-out (lesson 0012) + gather (lesson 0013).
+- [Prefect 3 — flow-runs Python API](https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs)
+  Full `run_deployment` signature + `as_subflow`. Pair with `prefect.flow_runs.
+  wait_for_flow_run(id)` (poll a run to a final state) and `State.result(
+  raise_on_failure=False)` to gather a distributed batch and survive partial failure.
+  Use for: collecting encode results across the fleet (lesson 0013). (Signatures
+  verified against the installed `3.7.5.dev4` via `inspect`.)
 - [Prefect API & CLI reference](https://docs.prefect.io/v3/api-ref/cli)
   Use for: `prefect server start`, `prefect flow-runs ls`, deployment commands.
 - [Prefect GitHub repo](https://github.com/PrefectHQ/prefect)
