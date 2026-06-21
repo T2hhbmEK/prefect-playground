@@ -1,0 +1,394 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 14 — Run the fleet</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 14 · Putting it together</p>
+    <h1>Run the fleet</h1>
+    <p class="subtitle">
+        Three lessons of theory —
+        <a href="0011-count-runs-not-cores.html">L11</a> per-worker GCL,
+        <a href="0012-fan-out-the-fleet.html">L12</a> split pools + fan-out,
+        <a href="0013-gather-the-fan-out.html">L13</a> gather — and nothing actually
+        run. Time to stop reading and execute the whole thing on your Docker stack.
+    </p>
+</header>
+
+<main>
+    <p>
+        The win here: <strong>one runnable script (<code>10_fleet.py</code>) and a
+        handful of commands stand up the entire fan-out fleet — two pools, two
+        workers, a per-machine GCL — and you watch the encodes gate themselves to two
+        at a time even though the coordinator fired all six at once.</strong> This is
+        L11–L13 made real, on one host standing in for the VM fleet.
+    </p>
+
+    <h2>0 · What you're running</h2>
+    <p>
+        <a href="../10_fleet.py">10_fleet.py</a> defines two flows and deploys both —
+        no new concepts, just the L12/L13 pattern wired end to end:
+    </p>
+    <table>
+        <tr><th>Deployment</th><th>Pool</th><th>Does</th></tr>
+        <tr><td><code>process-archive/extract</code></td><td><code>extract</code></td><td>Unpacks (light I/O), then fans out one <code>run_deployment</code> per segment and gathers them.</td></tr>
+        <tr><td><code>encode-segment/encode</code></td><td><code>encode</code></td><td>The CPU job: gates the (simulated) encode behind the per-worker GCL, persists its output path.</td></tr>
+    </table>
+
+    <h2>1 · Stand up the fleet</h2>
+    <p>Each line is one earlier lesson, made concrete:</p>
+    <pre><code># two pools, split by job type (L12) — no head-of-line blocking
+uv run prefect work-pool create extract --type process
+uv run prefect work-pool create encode  --type process
+
+# this box's CPU budget: limit = cores, occupy = threads/encode (L11)
+# 4 ÷ 2  →  exactly 2 encodes run at once on this machine
+uv run prefect gcl create encode:local-1 --limit 4
+
+# register BOTH deployments (L8) — this only registers; it runs nothing
+uv run python 10_fleet.py
+
+# one worker per pool, EACH carrying its WORKER_ID so it finds its GCL (L11)
+WORKER_ID=local-1 uv run prefect worker start --pool extract --limit 4 --name extract-1
+WORKER_ID=local-1 uv run prefect worker start --pool encode  --limit 6 --name encode-1</code></pre>
+    <div class="note">
+        <span class="label">Two workers, two terminals</span>
+        Start each <code>worker start</code> in its own shell (they run in the
+        foreground and stay attached). The <code>encode</code> worker's
+        <code>--limit 6</code> lets it <em>pick up</em> all six runs; the
+        <strong>GCL</strong> — not the worker limit — is what keeps only two
+        <em>encoding</em> at once. The other four are live processes parked on
+        <code>concurrency()</code> (the L11 "blocked run still holds a slot" gotcha,
+        seen for real).
+    </div>
+
+    <h2>2 · Fire one archive</h2>
+    <p>With both workers polling, trigger the coordinator:</p>
+    <pre><code>uv run prefect deployment run process-archive/extract -p archive=clip01.tar</code></pre>
+    <p>The encode worker's log shows the fan-out gated into <strong>three waves of two</strong>:</p>
+    <pre><code>[local-1] encoding clip01.tar segment 4 (holding 2 slots)
+[local-1] encoding clip01.tar segment 1 (holding 2 slots)   # wave 1: two at once
+[local-1] done → encoded/clip01.tar/seg-4.ivf
+[local-1] done → encoded/clip01.tar/seg-1.ivf
+[local-1] encoding clip01.tar segment 2 (holding 2 slots)
+[local-1] encoding clip01.tar segment 0 (holding 2 slots)   # wave 2 only after wave 1 frees slots
+...
+process-archive — 6 ok, 0 failed: []                        # coordinator gathered them</code></pre>
+    <div class="try">
+        <span class="label">This is the whole arc in one run</span>
+        All six fired instantly (<code>timeout=0</code>, L12). The GCL admitted
+        <code>⌊4 / 2⌋ = 2</code> (L11) — segments 3 &amp; 5 wait until 4 &amp; 1
+        finish. The coordinator polled each to done and returned the summary (L13).
+        Bump the GCL to <code>--limit 8</code> (<code>gcl update</code>) and rerun: four
+        at a time. Same flow code — only the number changed.
+    </div>
+
+    <h2>3 · When one segment dies</h2>
+    <p>
+        Restart the encode worker with <code>FAIL_SEGMENT=3</code> and fire a
+        <em>fresh</em> archive. Segment 3 raises; the coordinator does <strong>not</strong>
+        crash:
+    </p>
+    <pre><code>WORKER_ID=local-1 FAIL_SEGMENT=3 uv run prefect worker start --pool encode --limit 6
+uv run prefect deployment run process-archive/extract -p archive=clip02.tar
+# →  process-archive — 5 ok, 1 failed: [3]</code></pre>
+    <p>
+        That's <code>state.result(raise_on_failure=False)</code> from L13: read the bad
+        run's outcome as a value instead of re-raising, keep the five good results,
+        record the one failure to re-dispatch.
+    </p>
+
+    <h2>4 · Rerun is free</h2>
+    <p>
+        Trigger the <em>same</em> archive again. The
+        <code>idempotency_key=f"{archive}:{s}"</code> means every segment's key is
+        already known, so Prefect returns the <strong>existing</strong> runs —
+        <strong>zero new encodes</strong>, the worker stays idle:
+    </p>
+    <pre><code>uv run prefect deployment run process-archive/extract -p archive=clip01.tar
+# →  6 ok, 0 failed: []     (encode worker logs NOTHING — all runs reused)</code></pre>
+    <p class="try">
+        <span class="label">Why this matters</span>
+        A coordinator that crashes after dispatching can safely retry: it picks up the
+        finished encodes instead of doubling the CPU. A random/UUID key would defeat
+        this — every retry would look new and re-encode everything (L13).
+    </p>
+
+    <h2>5 · The catch running it exposed</h2>
+    <div class="why">
+        <span class="label">L13's <code>wait_for_flow_run</code> doesn't work in a <em>sync</em> flow here</span>
+        L13 wrote <code>wait_for_flow_run(r.id)</code> in a plain (sync) coordinator.
+        Run it and you get <code>'coroutine' object has no attribute 'state'</code> — in
+        our <code>3.7.5.dev4</code> build that function is <strong>async-only</strong>.
+        So <code>10_fleet.py</code>'s sync coordinator gathers by polling run state with
+        the <strong>sync client</strong> instead:
+        <pre style="margin:0.6rem 0 0"><code>from prefect.client.orchestration import get_client
+
+with get_client(sync_client=True) as client:
+    fr = client.read_flow_run(run_id)      # poll until fr.state.is_final()</code></pre>
+        Same idea — fire all, then wait on the batch. Making the coordinator
+        <code>async</code> so <code>await wait_for_flow_run(...)</code> works (and the
+        waits overlap with <code>asyncio.gather</code>) is the <strong>next</strong>
+        lesson. This is what "actually run it" buys you: the API reality, not the slide.
+    </div>
+
+    <h2>6 · Watch the whole run</h2>
+    <p>
+        The board below is the run you just did: fire 6, GCL gates to 2, gather the
+        outcomes. Toggle segment&nbsp;3 to failing, then hit
+        <strong>Rerun (same archive)</strong> to see <code>idempotency_key</code> reuse
+        every run.
+    </p>
+    <div class="runboard" id="run-sim">
+        <div class="controls">
+            <div>
+                <span class="lbl">Segment 3</span>
+                <span class="seg">
+                    <button data-mode="ok" class="active">all encode cleanly</button>
+                    <button data-mode="fail">segment 3 is corrupt</button>
+                </span>
+            </div>
+            <div class="btns">
+                <button class="run">▶ Run archive</button>
+                <button class="rerun" disabled>↻ Rerun (same archive)</button>
+            </div>
+        </div>
+        <div class="pool">
+            <span><code>encode:local-1</code> GCL — limit 4, occupy 2 →</span>
+            <span class="gauge"></span>
+            <span class="cap"></span>
+        </div>
+        <div class="segs"></div>
+        <div class="readout"></div>
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="recall">
+        <div class="prompt">
+            You fired six encodes at once (<code>timeout=0</code>) but the worker only
+            ever runs two. What's enforcing the two — and what one number would you
+            change on a 16-core box? <span class="tag">L11·L14</span>
+        </div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">
+            The <strong>per-worker GCL</strong> (<code>encode:local-1</code>, limit 4)
+            with <code>occupy=2</code> → <code>⌊4/2⌋ = 2</code> concurrent. Not the
+            worker <code>--limit</code> (that's a blunt whole-run cap) and not Prefect
+            counting cores. On a 16-core box, <code>gcl update encode:big-1 --limit 16</code>
+            → 8 at once. Same flow code everywhere.
+        </div>
+    </div>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            Both workers run on one host. You start them with <code>--pool extract</code>
+            and <code>--pool encode</code>. Why two pools instead of one?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">So slow encodes never park the slots that quick unpacks need</button>
+            <button class="opt" data-correct="false">A worker can only ever poll a single deployment</button>
+            <button class="opt" data-correct="false">Process pools require exactly one worker each</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            The coordinator fires six encodes with <code>timeout=0</code>, then needs
+            their outcomes. In <code>10_fleet.py</code> (a sync flow) it…
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Polls each run's state with the sync client until final</button>
+            <button class="opt" data-correct="false">Calls wait_for_flow_run, which works fine in sync flows</button>
+            <button class="opt" data-correct="false">Re-reads them with run_deployment a second time</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            You rerun the coordinator on the same archive and the encode worker logs
+            nothing. Why?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">The idempotency_key was already seen, so the runs are reused</button>
+            <button class="opt" data-correct="false">The GCL is full, so the new encodes are dropped</button>
+            <button class="opt" data-correct="false">Results were cached, so the flow runs were skipped at source</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">Run
+            deployments</a> and
+            <a href="https://docs.prefect.io/v3/concepts/workers">Workers &amp; work pools</a>.
+            Everything here was run end-to-end against our <code>3.7.5.dev4</code>
+            build — including the <code>wait_for_flow_run</code> sync/async catch.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want the <em>async</em>
+        coordinator next (<code>arun_deployment</code> + <code>await wait_for_flow_run</code>
+        + <code>asyncio.gather</code>, so the gather works the documented way and the
+        waits overlap), a bounded re-dispatch loop that retries only the failed segments,
+        or routing a GPU box as its own pool/queue? Ask in the chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): the async coordinator, a re-dispatch loop, or a GPU pool ⏭</span>
+    </div>
+</main>
+
+<script>
+    // ---- Run board: dispatch → GCL gate (2 at once) → gather → idempotent rerun ----
+    (function () {
+        var w = document.getElementById("run-sim");
+        if (!w) return;
+        var N = 6, CAP = 2;                 // GCL limit 4 / occupy 2 → 2 concurrent
+        var ENC = 950;                      // ms per "encode"
+        var mode = "ok";
+        var DOOMED = 3;                     // segment index that fails in "fail" mode
+        var order = [4, 1, 2, 0, 3, 5];     // dispatch/admit order (matches the real run)
+        var segsBox = w.querySelector(".segs");
+        var gauge = w.querySelector(".gauge");
+        var capLbl = w.querySelector(".cap");
+        var readout = w.querySelector(".readout");
+        var runBtn = w.querySelector(".run");
+        var rerunBtn = w.querySelector(".rerun");
+        var state = [], busy = 0, queue = [], timers = [];
+
+        function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+        function paintGauge() {
+            gauge.innerHTML = "";
+            for (var i = 0; i < CAP; i++) {
+                var s = document.createElement("span");
+                s.className = "slot" + (i < busy ? " busy" : "");
+                gauge.appendChild(s);
+            }
+            capLbl.textContent = busy + " / " + CAP + " encoding";
+        }
+
+        function paint() {
+            segsBox.innerHTML = "";
+            for (var i = 0; i < N; i++) {
+                var c = document.createElement("div");
+                var s = state[i] || "idle";
+                c.className = "seg-chip" + (s === "idle" ? "" : " " + s);
+                c.textContent = "s" + i;
+                segsBox.appendChild(c);
+            }
+            paintGauge();
+        }
+
+        function reset() {
+            clearTimers();
+            state = []; busy = 0; queue = [];
+            for (var i = 0; i < N; i++) state[i] = "idle";
+            rerunBtn.disabled = true;
+            runBtn.disabled = false;
+            paint();
+            readout.innerHTML = "Ready. <strong>Run archive</strong> fires all 6 at once (<code>timeout=0</code>).";
+        }
+
+        function admit() {
+            while (busy < CAP && queue.length) {
+                var i = queue.shift();
+                state[i] = "encoding"; busy++;
+                paint();
+                (function (idx) {
+                    timers.push(setTimeout(function () {
+                        state[idx] = (mode === "fail" && idx === DOOMED) ? "failed" : "done";
+                        busy--;
+                        paint();
+                        admit();
+                        if (state.every(function (s) { return s === "done" || s === "failed"; })) finish();
+                    }, ENC));
+                })(i);
+            }
+        }
+
+        function finish() {
+            var ok = state.filter(function (s) { return s === "done"; }).length;
+            var bad = [];
+            for (var i = 0; i < N; i++) if (state[i] === "failed") bad.push("s" + i);
+            readout.innerHTML = "<span class='ok'>✓ gathered all " + N + "</span> — <strong>" + ok +
+                " ok</strong>" + (bad.length ? ", <span class='err'>" + bad.length + " failed (" + bad.join(", ") +
+                ")</span> — kept the good ones, record the failure" : "") +
+                ". → <strong>Rerun (same archive)</strong> to see idempotency.";
+            rerunBtn.disabled = false;
+            runBtn.disabled = false;
+        }
+
+        function run() {
+            clearTimers();
+            runBtn.disabled = true; rerunBtn.disabled = true;
+            busy = 0; queue = order.slice();
+            for (var i = 0; i < N; i++) state[i] = "queued";
+            paint();
+            readout.innerHTML = "All 6 fired (<code>timeout=0</code>). GCL admits <strong>2 at a time</strong> — the rest wait.";
+            admit();
+        }
+
+        function rerun() {
+            // same archive → idempotency_key already seen → every run reused, NO new encode
+            clearTimers();
+            rerunBtn.disabled = true; runBtn.disabled = false;
+            busy = 0;
+            var bad = [];
+            for (var i = 0; i < N; i++) {
+                if (state[i] === "failed") bad.push("s" + i);   // existing failed run is reused as-is
+                else state[i] = "reused";
+            }
+            paint();
+            readout.innerHTML = "<span class='ok'>✓ reran — 0 new encodes.</span> Every <code>idempotency_key</code> was already seen, so Prefect returned the <strong>existing</strong> runs. The encode worker stays idle." +
+                (bad.length ? " (" + bad.join(", ") + " is still the same failed run — to redo it you'd re-dispatch with a fresh key, L13.)" : "");
+        }
+
+        w.querySelectorAll(".seg button").forEach(function (b) {
+            b.addEventListener("click", function () {
+                mode = b.dataset.mode;
+                w.querySelectorAll(".seg button").forEach(function (x) { x.classList.remove("active"); });
+                b.classList.add("active");
+                reset();
+            });
+        });
+        runBtn.addEventListener("click", run);
+        rerunBtn.addEventListener("click", rerun);
+        reset();
+    })();
+
+    // ---- Recall card: reveal on click ----
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // ---- Scenario quizzes (same widget as every other lesson) ----
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) { b.disabled = true; });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector('button.opt[data-correct="true"]');
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. You ran the whole fleet end-to-end."
+                    : "✗ Not quite — the highlighted answer is correct. Check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

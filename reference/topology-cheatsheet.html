@@ -70,7 +70,7 @@ runs = [run_deployment("encode-segment/encode",
                        idempotency_key=f"{archive}:{s}")   # stable → safe coordinator retry
         for s in segments]                                 # fire ALL first
 
-finished = [wait_for_flow_run(r.id) for r in runs]         # then gather each
+finished = [wait_for_flow_run(r.id) for r in runs]         # then gather each (async-only ⚠)
 
 done, failed = [], []
 for fr in finished:
@@ -91,6 +91,7 @@ for fr in finished:
   <div class="note">
     <span class="label">Things that bite</span>
     <ul style="margin:0.4rem 0 0">
+      <li><strong><code>wait_for_flow_run</code> is async-only</strong> (verified, <code>3.7.5.dev4</code>) → in a <em>sync</em> coordinator it returns a coroutine. Either make the flow <code>async</code> (<code>await wait_for_flow_run</code>), or poll state with <code>get_client(sync_client=True).read_flow_run(id)</code> (L14).</li>
       <li><strong>Using <code>.map</code> for fleet scale</strong> → it stays in one process on one machine. Use <code>run_deployment</code> per unit.</li>
       <li><strong>Expecting <code>as_subflow</code> to co-locate</strong> → it's lineage only; execution is on the pool.</li>
       <li><strong>Blocking the coordinator</strong> → forgetting <code>timeout=0</code> makes the parent wait on each encode serially. Fire all, gather later.</li>

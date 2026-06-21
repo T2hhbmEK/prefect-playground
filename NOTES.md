@@ -53,7 +53,7 @@ baseline) and `0008-mission-expanded-scale` (the 2026-06-21 scope change).
 
 - `0001`–`0007` ↔ **L1–L7** (aligned)
 - `0008-mission-expanded-scale` ↔ **—** (decision record, no lesson — the +1 starts here)
-- `0009` / `0010` / `0011` / `0012` / `0013` / `0014` ↔ **L8** / **L9** / **L10** / **L11** / **L12** / **L13**
+- `0009` / `0010` / `0011` / `0012` / `0013` / `0014` / `0015` ↔ **L8** / **L9** / **L10** / **L11** / **L12** / **L13** / **L14**
 
 Don't renumber to "align" them: records cross-link by slug via wikilinks
 (`[[0008-mission-expanded-scale]]` alone is referenced by 0009, 0010, and 0012), so
@@ -101,12 +101,20 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
     results-vs-states across machines (ties back to L4 — return values need persisted
     shared storage). New reusable `.batch` widget; verified `wait_for_flow_run` /
     `State` predicates against the build. ← done (lesson 0013).
-14. (next) Candidates, in rough priority: **the runnable end-to-end demo** on the
-    Docker stack (extract + encode pools, two workers, this gather coordinator) — now
-    offered three lessons running, the arc is theory-heavy with nothing actually run;
-    **async fan-out/gather** (`arun_deployment` + `asyncio.gather`, now directly
-    motivated since L13 exposed serial polling as the cost) — the overdue async thread;
-    a **GPU pool** routed by machine class (`work_queue_name`); or a **cold redo of
-    L10** (spacing: 3 lessons of new material since — L11–L13 — though the trigger is
-    elapsed calendar time, not lesson count). Standing: `max_workers`; (much later)
-    the K8s graduation; Dask/Ray.
+14. **Run the fleet** — the runnable end-to-end demo, finally executed on the Docker
+    stack. New script `10_fleet.py` (first script since `09_*`): `encode-segment/encode`
+    (GCL + `occupy` around a `sleep` subprocess, `persist_result`) + `process-archive/extract`
+    (fan out `run_deployment(timeout=0, idempotency_key=…)`, gather). Verified LIVE:
+    happy path `6 ok` in 3 waves of 2 (GCL holds), partial failure `5 ok, 1 failed:[3]`,
+    idempotent rerun = 0 new encodes. **First lesson run end-to-end, not just `inspect`.**
+    Surfaced a real correction: L13's `wait_for_flow_run` is **async-only** in `3.7.5.dev4`
+    — sync coordinator polls via `get_client(sync_client=True)` instead; cheatsheet fixed.
+    New `.runboard` widget. ← done (lesson 0014).
+15. (next) Candidates, in rough priority: **the async coordinator** (`arun_deployment` +
+    `await wait_for_flow_run` + `asyncio.gather`) — now doubly motivated: L13 flagged
+    serial polling, L14 _proved_ `wait_for_flow_run` is async-only, so this closes the
+    sync/async loose end directly; a **bounded re-dispatch loop** (retry only failed
+    segments N times, needs a fresh `idempotency_key` per attempt — L14 records failures
+    but doesn't redo them); a **GPU pool** routed by machine class (`work_queue_name`);
+    or a **cold redo of L10** (spacing: L11–L14 = four lessons of new material since the
+    last review). Standing: `max_workers`; (much later) the K8s graduation; Dask/Ray.

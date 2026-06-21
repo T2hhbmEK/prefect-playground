@@ -49,7 +49,11 @@ Expanded arc (in progress):
   VMs never oversubscribes. ✓ L11.
 - **Route work by type, fan out across the fleet**: separate `extract` (I/O) and
   `encode` (CPU) pools/queues, a worker per type per box, and dispatch encodes as
-  independent runs with `run_deployment`. (next)
+  independent runs with `run_deployment`. ✓ L12–L13.
+- **Run the whole thing**: stand the fan-out fleet up on the Docker stack and execute
+  it — two pools, two workers, per-machine GCL, fan-out + gather coordinator
+  (`10_fleet.py`). Watched the GCL gate 6 encodes to 2-at-a-time, survive a partial
+  failure, and reuse runs on an idempotent rerun. ✓ L14. (next: the async coordinator.)
 
 ## Constraints
 
