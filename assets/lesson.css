@@ -271,6 +271,26 @@ th { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.78rem; text
 .sim .status strong { color: var(--ink); }
 .sim .status .blocked { color: var(--bad); font-weight: 700; }
 
+/* ---- Fleet distribution (subflow on one box vs run_deployment fan-out) ---- */
+.fleet { border: 1px solid var(--rule); border-radius: 10px; padding: 1.3rem 1.4rem; margin: 1.6rem 0; background: #fff; }
+.fleet .controls { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: flex-end; margin-bottom: 1rem; }
+.fleet .lbl { display: block; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.64rem; font-weight: 700; margin-bottom: 0.35rem; }
+.fleet .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.fleet .seg button { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.82rem; border: none; border-right: 1px solid var(--rule); background: var(--paper); padding: 0.35rem 0.85rem; cursor: pointer; }
+.fleet .seg button:last-child { border-right: none; }
+.fleet .seg button.active { background: var(--accent); color: #fff; }
+.fleet .dispatch { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; font-weight: 600; padding: 0.45rem 1rem; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.fleet .machines { display: flex; gap: 0.7rem; flex-wrap: wrap; margin: 0.2rem 0 0.85rem; }
+.fleet .machine { flex: 1 1 130px; border: 1px solid var(--rule); border-radius: 8px; padding: 0.55rem 0.6rem; background: var(--paper); }
+.fleet .machine .mname { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); display: flex; justify-content: space-between; }
+.fleet .machine .mname .cap { color: var(--ink-faint); font-weight: 600; }
+.fleet .machine .mslots { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.45rem; min-height: 24px; }
+.fleet .chip { width: 24px; height: 24px; border-radius: 5px; background: var(--code-bg); border: 1px solid var(--rule); transition: background 0.15s; }
+.fleet .chip.run { border-color: transparent; }
+.fleet .chip.wait { border-style: dashed; border-color: var(--bad); background: #fbe6e4; }
+.fleet .readout { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.5; }
+.fleet .readout strong { color: var(--ink); }
+
 /* ---- Footer / nav ---- */
 .lesson-nav {
   margin-top: 3.5rem;

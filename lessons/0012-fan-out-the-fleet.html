@@ -1,0 +1,287 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 12 — Fan out across the fleet</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 12 · Topology &amp; fan-out</p>
+    <h1>Fan out across the fleet</h1>
+    <p class="subtitle">
+        <a href="0009-distribute-the-work.html">L9</a> spread tasks within one run —
+        but on one machine. <a href="0011-count-runs-not-cores.html">L11</a> capped each
+        machine. Now the missing piece: one unpack job spawns dozens of encodes — how do
+        you make the <em>whole fleet</em> chew through them at once, without light jobs
+        starving behind heavy ones?
+    </p>
+</header>
+
+<main>
+    <p>
+        A real job is a pipeline: unpack one archive (light, I/O), then encode the dozens
+        of segments inside it (heavy, CPU). The win here: <strong>run the unpack on its
+        own pool, then dispatch each encode as an independent flow run so every machine
+        works at once — and a flood of light jobs can never starve the encodes.</strong>
+    </p>
+
+    <h2>1 · Three axes of "spreading work"</h2>
+    <p>You've now met all three. The new one is the last row:</p>
+    <table>
+        <tr><th>What it controls</th><th>Primitive</th><th>Set where</th></tr>
+        <tr><td>How one run's tasks spread (one machine)</td><td>Task runner <span class="cite">L9</span></td><td>Flow code</td></tr>
+        <tr><td>Which machine runs it, and how much</td><td>Worker <code>--limit</code> / GCL <span class="cite">L11</span></td><td>Worker start</td></tr>
+        <tr><td><strong>Which <em>kind</em> of work runs where</strong></td><td><strong>Work pool / queue by job type</strong></td><td>Deployment → pool</td></tr>
+    </table>
+
+    <h2>2 · Split the pools by job type</h2>
+    <p>
+        Two pools: <code>extract</code> (I/O — a generous <code>--limit</code>) and
+        <code>encode</code> (CPU — GCL-capped, from L11). Each machine runs <em>two
+        workers</em>, one per pool, each with its own limit.
+    </p>
+    <pre><code>uv run prefect work-pool create extract --type process
+uv run prefect work-pool create encode  --type process</code></pre>
+    <div class="why">
+        <span class="label">Why not one shared pool?</span>
+        <strong>Head-of-line blocking.</strong> Share one pool and a backlog of slow,
+        tightly-capped encodes parks every worker slot — your quick unpacks wait behind
+        them (and vice versa). Separate pools give each job type independent limits,
+        independent scaling, and clean routing. (One pool with two <em>queues</em> is the
+        lighter alternative; two pools is cleaner and lets a future GPU box be its own
+        pool.)
+    </div>
+
+    <h2>3 · Fan out — the crux</h2>
+    <p>
+        The trap: write the batch as one flow that <code>.map()</code>s the encodes. L9
+        says <code>.map</code> spreads tasks — true, but across threads/processes
+        <em>in one run, on one machine</em>. Your other machines idle while one box
+        grinds. "Subflow" means two different things:
+    </p>
+    <table>
+        <tr><th>You write</th><th>It runs…</th></tr>
+        <tr><td><code>encode(seg)</code> — a direct call</td><td>inline, in the parent's process — <strong>one machine</strong></td></tr>
+        <tr><td><code>run_deployment("encode/encode", …)</code></td><td>a <strong>separate flow run</strong> on the <code>encode</code> pool — <strong>any worker, any machine</strong></td></tr>
+    </table>
+    <pre><code>from prefect import flow
+from prefect.deployments import run_deployment
+
+@flow   # deployed to the `extract` pool
+def process_archive(archive: str):
+    segments = unpack(archive)              # light I/O — runs here
+    runs = [
+        run_deployment(
+            "encode-segment/encode",        # "flow-name/deployment-name"
+            parameters={"segment": s},
+            timeout=0,                      # fire-and-forget: return at once
+        )
+        for s in segments
+    ]
+    return [r.id for r in runs]             # one distributed flow run per segment</code></pre>
+    <div class="note">
+        <span class="label">Verified behaviour (dev build 3.7.5.dev4)</span>
+        <code>timeout=0</code> returns the moment each run is <em>created</em> (don't
+        wait); the default blocks until it finishes. And <code>as_subflow=True</code>
+        (the default) only <em>nests</em> each encode under the parent in the UI — it
+        does <strong>not</strong> pin execution to the parent's machine; the run still
+        executes on the <code>encode</code> pool.<a class="cite" href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">1</a>
+    </div>
+
+    <h2>4 · Watch it spread</h2>
+    <p>
+        A 3-machine fleet (sized like L11: 4 / 2 / 1 slots). Toggle how you dispatch a
+        batch of 6 encodes and watch where they land.
+    </p>
+    <div class="fleet" id="fleet-sim">
+        <div class="controls">
+            <div>
+                <span class="lbl">How you dispatch the encodes</span>
+                <span class="seg">
+                    <button data-mode="subflow">subflow / .map (one flow)</button>
+                    <button data-mode="fanout" class="active">run_deployment (fan-out)</button>
+                </span>
+            </div>
+            <button class="dispatch">▶ Dispatch 6 encodes</button>
+        </div>
+        <div class="machines"></div>
+        <div class="readout"></div>
+    </div>
+
+    <h2>Check yourself</h2>
+    <p>No scrolling up — pull these from memory.</p>
+
+    <div class="recall">
+        <div class="prompt">
+            L9: <code>.map</code> spread tasks across cores. L11: you capped each machine.
+            So why doesn't <code>.map</code>-ing your encodes use the whole fleet — and
+            what does? <span class="tag">L9·L12</span>
+        </div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">
+            <code>.map</code> spreads tasks within <strong>one flow run = one process =
+            one machine</strong>. To use the fleet, each encode must be its <em>own</em>
+            flow run — dispatch with <code>run_deployment(…, timeout=0)</code> onto the
+            <code>encode</code> pool, where any worker can grab it.
+        </div>
+    </div>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            You <code>.map()</code> 20 encodes inside one flow on a 5-machine fleet. Where
+            do they run?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">All on the single machine running it</button>
+            <button class="opt" data-correct="false">Spread evenly across all five machines</button>
+            <button class="opt" data-correct="false">On whichever machine has free cores</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            Which gets each encode its own flow run on the pool?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">A run_deployment call per encode segment</button>
+            <button class="opt" data-correct="false">A direct subflow call per segment</button>
+            <button class="opt" data-correct="false">A process runner over encode tasks</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            Why split <code>extract</code> and <code>encode</code> into separate pools?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">Light jobs never queue behind heavy ones</button>
+            <button class="opt" data-correct="false">Prefect needs a pool for each flow</button>
+            <button class="opt" data-correct="false">Encodes run faster with fewer pools</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="source-box">
+        <span class="label">Read this next (primary source)</span>
+        <p style="margin: 0.4rem 0 0">
+            Prefect 3 —
+            <a href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">Run
+            deployments</a> (the <code>run_deployment</code> how-to: parameters, timeout,
+            scheduling) and the
+            <a href="https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs">flow-runs
+            API reference</a> (full signature + <code>as_subflow</code>). Verified for our
+            <code>3.7.5.dev4</code> build.
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want to <em>wait on</em> the
+        fan-out (gather each encode's result), add an <code>idempotency_key</code> so a
+        retried coordinator doesn't double-encode, route a GPU box as its own pool, or
+        see a runnable end-to-end demo on your Docker stack? And the day static limits
+        strand cores, that's the
+        <a href="../MISSION.md">Kubernetes graduation</a> (still out of scope). Ask in the
+        chat.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="../reference/topology-cheatsheet.html">Topology cheatsheet →</a></span>
+        <span><a href="../reference/glossary.html">Glossary</a> · Next (ask): gather the fan-out, or redo L10 cold ⏭</span>
+    </div>
+</main>
+
+<script>
+    // ---- Fleet distribution: subflow (one box) vs run_deployment (fan-out) ----
+    (function () {
+        var w = document.getElementById("fleet-sim");
+        if (!w) return;
+        var machines = [{ name: "big-cvm", cap: 4 }, { name: "med-vm", cap: 2 }, { name: "small-vm", cap: 1 }];
+        var BATCH = 6;
+        var palette = ["#0a4fa0", "#1f7a4d", "#9a6b00", "#5a4b8a", "#2f6f6a", "#c2410c"];
+        var mode = "fanout";
+        var box = w.querySelector(".machines");
+        var readout = w.querySelector(".readout");
+
+        function assign() {
+            var a = machines.map(function () { return 0; });
+            if (mode === "subflow") { a[0] = BATCH; }
+            else { for (var i = 0; i < BATCH; i++) { a[i % machines.length]++; } }
+            return a;
+        }
+
+        function render() {
+            var a = assign();
+            box.innerHTML = "";
+            machines.forEach(function (m, mi) {
+                var running = Math.min(a[mi], m.cap);
+                var waiting = Math.max(0, a[mi] - m.cap);
+                var card = document.createElement("div");
+                card.className = "machine";
+                var name = document.createElement("div");
+                name.className = "mname";
+                name.innerHTML = "<span>" + m.name + "</span><span class='cap'>" + running + "/" + m.cap + "</span>";
+                card.appendChild(name);
+                var slots = document.createElement("div");
+                slots.className = "mslots";
+                for (var i = 0; i < m.cap; i++) {
+                    var c = document.createElement("div");
+                    c.className = "chip" + (i < running ? " run" : "");
+                    if (i < running) c.style.background = palette[(mi * 3 + i) % palette.length];
+                    slots.appendChild(c);
+                }
+                for (var j = 0; j < waiting; j++) {
+                    var q = document.createElement("div");
+                    q.className = "chip wait";
+                    slots.appendChild(q);
+                }
+                card.appendChild(slots);
+                box.appendChild(card);
+            });
+            if (mode === "subflow") {
+                readout.innerHTML = "<strong>subflow / .map:</strong> all " + BATCH +
+                    " encodes run inside one flow → <strong>one machine</strong> (big-cvm): 4 run, 2 wait (dashed). med-vm &amp; small-vm sit <strong>idle</strong>.";
+            } else {
+                readout.innerHTML = "<strong>run_deployment fan-out:</strong> " + BATCH +
+                    " separate flow runs land on the <code>encode</code> pool → <strong>every machine</strong> pitches in, each gated by its own L11 limit. Nothing waiting.";
+            }
+        }
+
+        w.querySelectorAll(".seg button").forEach(function (b) {
+            b.addEventListener("click", function () {
+                mode = b.dataset.mode;
+                w.querySelectorAll(".seg button").forEach(function (x) { x.classList.remove("active"); });
+                b.classList.add("active");
+                render();
+            });
+        });
+        w.querySelector(".dispatch").addEventListener("click", render);
+        render();
+    })();
+
+    // ---- Recall card: reveal on click ----
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // ---- Scenario quizzes (same widget as every other lesson) ----
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) { b.disabled = true; });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector('button.opt[data-correct="true"]');
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right. One run = one machine; many runs = the fleet."
+                    : "✗ Not quite — the highlighted answer is correct. Check the cheatsheet.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

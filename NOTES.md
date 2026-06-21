@@ -90,9 +90,14 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
     Grounded in the learner's real **AV1 encode fleet**; extends L9 (subprocess CPU
     work → the task runner is the wrong lever). New reusable `.sim` widget; K8s /
     cgroups named as horizon only, kept out of scope. ← done (lesson 0011).
-12. (next) Either (a) **topology** — separate `extract`/`encode` pools + queues, two
-    workers per box, `run_deployment` to fan encodes across the fleet; or (b) the
-    overdue **cold redo of L10** (let spacing work; report which L# tags slipped).
-    Standing threads: `max_workers`; async / `ConcurrentTaskRunner`; deployment
-    `parameters=`; multiple workers / pool concurrency; a runnable
-    `10_concurrency_limits.py`; (much later) the K8s graduation; Dask/Ray.
+12. **Fan out across the fleet** — topology: split `extract` (I/O) vs `encode` (CPU)
+    into separate pools (head-of-line blocking), two workers per box, and
+    `run_deployment(..., timeout=0)` to dispatch each encode as its own distributed
+    flow run (vs a direct subflow / `.map`, which stay on one machine). New `.fleet`
+    widget; verified `run_deployment` / `as_subflow` behaviour. ← done (lesson 0012).
+13. (next) Candidates: **gather/await the fan-out** (collect encode results,
+    `idempotency_key` for safe retries, partial-failure handling); a **GPU pool**
+    routed by machine class (`work_queue_name`); a runnable end-to-end demo on the
+    Docker stack; or the overdue **cold redo of L10** (spacing — now 4 lessons stale).
+    Standing: `max_workers`; async / `ConcurrentTaskRunner`; (much later) the K8s
+    graduation; Dask/Ray.

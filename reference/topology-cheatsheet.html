@@ -1,0 +1,85 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet topology — Prefect reference</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+
+<header>
+  <p class="kicker">Reference · Topology &amp; fan-out</p>
+  <h1>Pools by job type, fan-out by run</h1>
+  <p class="subtitle">Structure work across a fleet: who runs what, where, and how it spreads. Copy-paste ready.</p>
+</header>
+
+<main>
+  <h2>Three axes of spreading work</h2>
+  <table>
+    <tr><th>Controls</th><th>Primitive</th><th>Set where</th></tr>
+    <tr><td>How one run's tasks spread (one machine)</td><td>Task runner (L9)</td><td>Flow code <code>@flow(task_runner=…)</code></td></tr>
+    <tr><td>Which machine, and how much (L11)</td><td>Worker <code>--limit</code> / per-worker GCL</td><td>Worker start</td></tr>
+    <tr><td>Which <em>kind</em> of work runs where</td><td>Work pool / queue by job type</td><td>Deployment → pool</td></tr>
+  </table>
+
+  <h2>Split pools by job type</h2>
+  <pre><code>uv run prefect work-pool create extract --type process   # I/O — generous --limit
+uv run prefect work-pool create encode  --type process   # CPU — GCL-capped (L11)
+
+# Each machine runs TWO workers, one per pool, each with its own limit:
+WORKER_ID=big-1 uv run prefect worker start --pool extract --limit 12
+WORKER_ID=big-1 uv run prefect worker start --pool encode  --limit 4</code></pre>
+  <p class="why"><span class="label">Why separate, not one pool</span> <strong>Head-of-line blocking.</strong> In one shared pool a backlog of slow, tightly-capped encodes parks every worker slot and quick unpacks wait behind them. Separate pools = independent limits, scaling, and routing. (Two <em>queues</em> in one pool is the lighter alternative; separate pools is cleaner and lets a GPU box be its own pool.)</p>
+
+  <h2>Fan out: one run per unit of work</h2>
+  <pre><code>from prefect import flow
+from prefect.deployments import run_deployment
+
+@flow   # deployed to the `extract` pool
+def process_archive(archive: str):
+    segments = unpack(archive)            # light I/O, runs here
+    runs = [
+        run_deployment(
+            "encode-segment/encode",      # "flow-name/deployment-name"
+            parameters={"segment": s},
+            timeout=0,                    # fire-and-forget: return at once
+        )
+        for s in segments
+    ]
+    return [r.id for r in runs]           # one DISTRIBUTED flow run per segment</code></pre>
+
+  <h2>What spreads where</h2>
+  <table>
+    <tr><th>You write</th><th>Spreads</th><th>Runs on</th></tr>
+    <tr><td><code>encode(seg)</code> (direct subflow)</td><td>nothing — inline</td><td>the caller's machine</td></tr>
+    <tr><td><code>encode.map(segs)</code> + task runner</td><td>tasks within one run</td><td>the caller's machine</td></tr>
+    <tr><td><code>run_deployment("encode/…", timeout=0)</code></td><td>whole flow runs</td><td><strong>any worker on the pool</strong></td></tr>
+  </table>
+
+  <h2><code>run_deployment</code> knobs</h2>
+  <table>
+    <tr><th>Arg</th><th>Effect</th></tr>
+    <tr><td><code>timeout=0</code></td><td>Return immediately after the run is created (fan-out). Default (<code>None</code>) blocks until it finishes; a number waits up to N seconds.</td></tr>
+    <tr><td><code>parameters={…}</code></td><td>Per-run overrides, merged with the deployment defaults.</td></tr>
+    <tr><td><code>as_subflow=True</code></td><td>Default. <em>Nests</em> the run under the caller in the UI — does <strong>not</strong> co-locate execution; it still runs on the pool.</td></tr>
+    <tr><td><code>idempotency_key=…</code></td><td>Dedupe: a retried coordinator won't create duplicate encode runs for the same key.</td></tr>
+    <tr><td><code>work_queue_name=…</code></td><td>Target a specific queue within the deployment's pool (e.g. route by machine class).</td></tr>
+  </table>
+
+  <h2>Gotchas</h2>
+  <div class="note">
+    <span class="label">Things that bite</span>
+    <ul style="margin:0.4rem 0 0">
+      <li><strong>Using <code>.map</code> for fleet scale</strong> → it stays in one process on one machine. Use <code>run_deployment</code> per unit.</li>
+      <li><strong>Expecting <code>as_subflow</code> to co-locate</strong> → it's lineage only; execution is on the pool.</li>
+      <li><strong>Blocking the coordinator</strong> → forgetting <code>timeout=0</code> makes the parent wait on each encode serially. Fire all, gather later.</li>
+      <li><strong>Wrong deployment name</strong> → it's <code>"flow-name/deployment-name"</code>, not the file or function name.</li>
+    </ul>
+  </div>
+
+  <div class="source-box">
+    <span class="label">Primary source</span>
+    <p style="margin:0.4rem 0 0">Prefect 3 — <a href="https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments">Run deployments</a> + the <a href="https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs">flow-runs API</a>.</p>
+  </div>
+
+  <div class="lesson-nav">
+    <span><a href="../lessons/0012-fan-out-the-fleet.html">← Lesson 12: Fan out across the fleet</a></span>
+    <span><a href="concurrency-cheatsheet.html">Concurrency cheatsheet</a> · <a href="work-pools-cheatsheet.html">Work pools</a> · <a href="glossary.html">Glossary</a></span>
+  </div>
+</main>
