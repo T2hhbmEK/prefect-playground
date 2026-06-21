@@ -45,14 +45,27 @@
     <h2>1 · The diff: sync → async</h2>
     <p>Same shape as L13's gather — fire all with <code>timeout=0</code>, then gather —
         but every blocking call becomes an awaited one, and the poll loop disappears:</p>
-    <pre><code># the tempting sync version (breaks here)    # async — 10_fleet.py's coordinator
-runs = [run_deployment(...) for s in segs]   runs = await asyncio.gather(*(
-                                                 arun_deployment(..., timeout=0)
-                                                 for s in segs))
-finished = gather([r.id for r in runs])      finished = await asyncio.gather(*(
-  # ^ hand-rolled poll loop over the            wait_for_flow_run(r.id)
-  #   sync client (15 lines)                     for r in runs))
-res = fr.state.result(...)                    res = await fr.state.aresult(...)</code></pre>
+    <div class="codecompare">
+        <figure class="before">
+            <figcaption>The tempting sync version — breaks here</figcaption>
+            <pre><code>runs = [run_deployment(...) for s in segs]
+
+finished = gather([r.id for r in runs])
+  # ^ hand-rolled poll loop over the
+  #   sync client (15 lines)
+res = fr.state.result(...)</code></pre>
+        </figure>
+        <figure class="after">
+            <figcaption>async — 10_fleet.py's coordinator</figcaption>
+            <pre><code>runs = await asyncio.gather(*(
+    arun_deployment(..., timeout=0)
+    for s in segs))
+finished = await asyncio.gather(*(
+    wait_for_flow_run(r.id)
+    for r in runs))
+res = await fr.state.aresult(...)</code></pre>
+        </figure>
+    </div>
     <p class="try">
         <span class="label">Two phases, both concurrent</span>
         <code>asyncio.gather</code> appears twice: once over the <em>creates</em>
