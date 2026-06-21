@@ -1,5 +1,6 @@
 # prefect artifacts
 .prefectignore
+.prefect/
 
 # python artifacts
 __pycache__/

@@ -8,9 +8,6 @@ dependencies = [
     "prefect[aws,redis]==3.7.5.dev4",
 ]
 
-[tool.prefect.server]
-analytics_enabled = false
-
 [dependency-groups]
 dev = [
     "ruff>=0.15.17",

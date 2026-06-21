@@ -1,0 +1,21 @@
+# Project-level Prefect *client* settings (committed to the repo).
+#
+# Auto-applied whenever you run a flow from this directory, regardless of which
+# ~/.prefect profile is active. This points the host client at the Dockerized
+# server started via `docker compose up -d` (see docker-compose.yml).
+#
+# Server-side settings (database, API host, analytics) live in the compose
+# `environment:` block, NOT here — this file only configures the client.
+
+# Keep all client runtime state (profiles.toml, result storage, telemetry, the
+# local SQLite db) inside this project folder instead of the global ~/.prefect.
+# Path is relative to where you run flows from — i.e. the repo root.
+home = ".prefect"
+
+[api]
+url = "http://127.0.0.1:4200/api"
+
+# Persisted result blobs. The default would re-resolve $PREFECT_HOME against the
+# real OS home (~/.prefect/storage) due to bootstrap ordering, so pin it here.
+[results]
+local_storage_path = ".prefect/storage"

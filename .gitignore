@@ -12,5 +12,8 @@ __pycache__/
 node_modules/
 .ruff_cache/
 
+# Prefect client runtime state (config lives in the committed prefect.toml)
+.prefect/
+
 # OS
 .DS_Store
