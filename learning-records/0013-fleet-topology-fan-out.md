@@ -50,6 +50,7 @@ needs ≥2 pools + workers running; offered, not built).
   + `work_queue_name`.
 + A **runnable end-to-end demo** on the Docker stack (extract + encode pools, two
   workers, a fan-out coordinator).
-+ Still pending: the overdue **cold redo of L10** (spacing — now 4 lessons stale).
++ Still pending: a **cold redo of L10** (spacing: 2 lessons of new material since —
+  L11, L12 — trigger is elapsed calendar time, not lesson count).
 + Standing: `max_workers`; async / `ConcurrentTaskRunner`; (much later) the K8s
   graduation; Dask/Ray.

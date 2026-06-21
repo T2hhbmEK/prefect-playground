@@ -98,6 +98,7 @@ distributed execution now IN scope. See [[0008-mission-expanded-scale]].
 13. (next) Candidates: **gather/await the fan-out** (collect encode results,
     `idempotency_key` for safe retries, partial-failure handling); a **GPU pool**
     routed by machine class (`work_queue_name`); a runnable end-to-end demo on the
-    Docker stack; or the overdue **cold redo of L10** (spacing — now 4 lessons stale).
+    Docker stack; or a **cold redo of L10** (spacing: 2 lessons of new material since —
+    L11, L12 — and the trigger is elapsed calendar time, not lesson count).
     Standing: `max_workers`; async / `ConcurrentTaskRunner`; (much later) the K8s
     graduation; Dask/Ray.
