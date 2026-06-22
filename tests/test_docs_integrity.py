@@ -22,6 +22,9 @@ ALL_HTML = sorted([*LESSONS_DIR.glob("*.html"), *REFERENCE_DIR.glob("*.html")])
 LESSONS = sorted(LESSONS_DIR.glob("*.html"))
 RECORDS = sorted(RECORDS_DIR.glob("*.md"))
 
+INDEX_HTML = REPO_ROOT / "index.html"
+MANIFEST_FILE_RE = re.compile(r'file:\s*"([^"]+)"')
+
 # Lessons exempt from the primary-source rule: interleaved review/recall lessons
 # that re-practice earlier material rather than introduce new content (see NOTES).
 NO_CITATION_OK = {"0010-review-and-retrieve", "0016-review-the-fleet"}
@@ -82,6 +85,19 @@ def test_lessons_are_contiguously_numbered():
 def test_records_are_contiguously_numbered():
     nums = sorted(int(LEADING_NUM_RE.match(p.stem).group(1)) for p in RECORDS)
     assert nums == list(range(1, len(nums) + 1)), f"gap in record numbering: {nums}"
+
+
+def test_index_manifest_covers_every_page():
+    # The web shell (index.html) drives its sidebar + catalog from a hardcoded JS
+    # manifest. It has no build step and `file://` blocks fetch, so the manifest
+    # can't be generated at runtime — this guards it against drift: it must list
+    # exactly the lessons/ + reference/ pages, no more, no fewer.
+    listed = set(MANIFEST_FILE_RE.findall(INDEX_HTML.read_text()))
+    actual = {p.name for p in LESSONS} | {p.name for p in REFERENCE_DIR.glob("*.html")}
+    missing = actual - listed
+    extra = listed - actual
+    assert not missing, f"index.html manifest is missing pages: {sorted(missing)}"
+    assert not extra, f"index.html manifest lists unknown pages: {sorted(extra)}"
 
 
 # --- link graph --------------------------------------------------------------

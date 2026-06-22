@@ -37,6 +37,15 @@ you add or change a lesson (the `*-FORMAT.md` files beside the skill define each
 - **`assets/lesson.css`** — the shared stylesheet + component library every lesson links.
   Reuse-first: add new reusable widgets here (e.g. `.sim`, `.fleet`, `.batch`,
   `.runboard`, `.recall` flip-cards) instead of inlining per-lesson.
+- **`index.html`** (repo root) — the **course web front-end**: a single self-contained
+  iframe shell with an arc-grouped sidebar (sections from `NOTES.md`) and a catalog landing
+  page. Open it directly (`file://`, double-click) or serve the repo root with
+  `bun run serve` (→ `uv run python -m http.server 8000`, then `http://localhost:8000/`).
+  It loads each lesson/reference page in an `<iframe>` so the lessons' inline scripts run
+  unchanged — it never modifies the lesson files. Lessons + references are listed in a
+  hardcoded JS `SECTIONS`/`REFERENCE` manifest; **when you add or remove a page, update
+  that manifest** — `tests/test_docs_integrity.py::test_index_manifest_covers_every_page`
+  fails on drift.
 - **`learning-records/NNNN-<slug>.md`** — ADR-style records of what was learned/decided.
   **Do not map records 1:1 to lessons, and do not renumber them:** records cross-link by
   slug via `[[wikilinks]]`, and they include decision-only records with no lesson
