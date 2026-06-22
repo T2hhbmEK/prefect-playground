@@ -3,8 +3,8 @@
 A **Prefect 3 teaching workspace** — runnable example flows plus a structured set of
 lessons, reference cheatsheets, and learning records built with the `teach` skill.
 
-Numbered scripts (e.g. `01_getting_started.py` … `10_fleet.py`) are standalone,
-self-contained examples — each defines its own `@flow` and runs via
+Numbered scripts (`01_getting_started.py` … `10_fleet.py`, plus `alert_listener.py`) are
+standalone, self-contained examples — each defines its own `@flow` and runs via
 `if __name__ == "__main__"`. See `MISSION.md` for the goal, `NOTES.md` for the course
 arc, and `AGENTS.md` for the full layout.
 
@@ -30,6 +30,16 @@ docker compose down                   # stop (data persists in volumes)
 
 The host client talks to the Dockerized server via `prefect.toml`, so there's no need to
 run `prefect server start` by hand.
+
+## Browsing the lessons
+
+The lessons, reference cheatsheets, and learning records render as a single web
+front-end (`index.html`) — an arc-grouped sidebar over the course, loading each lesson
+in an iframe. Open it directly (double-click / `file://`) or serve the repo root:
+
+```bash
+bun run serve   # → uv run python -m http.server 8000, then http://localhost:8000/
+```
 
 ## Tests
 
