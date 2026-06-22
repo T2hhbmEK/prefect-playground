@@ -1,0 +1,244 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 16 — Review the fleet</title>
+<link rel="stylesheet" href="../assets/lesson.css" />
+
+<header>
+    <p class="kicker">Lesson 16 · Interleaved review</p>
+    <h1>Review the fleet</h1>
+    <p class="subtitle">
+        No new material — this makes the last five lessons <em>stick</em>. L11–L15
+        built the whole fan-out fleet: per-machine saturation, split pools,
+        gather-and-recover, and the async coordinator. That's a lot of dense
+        machinery, and it's been a while. The questions are shuffled across all
+        five on purpose — answer from memory <em>before</em> you reveal.
+    </p>
+</header>
+
+<main>
+    <div class="note">
+        <span class="label">How to use this</span>
+        For each card, <strong>say or type your answer out loud first</strong>, then
+        hit <em>Reveal</em>. Blanking is a signal, not a failure — note the
+        <span class="tag">L#</span> tag and revisit that lesson. The cards that feel
+        effortful are exactly the ones this session strengthens (<em>desirable
+        difficulty</em>). This is the first review since <a href="0010-review-and-retrieve.html">L10</a> —
+        five lessons ago — so expect some rust.
+    </div>
+
+    <h2>Part 1 · Recall from memory</h2>
+    <p>Think the answer through completely, <em>then</em> reveal to check. Tags are
+    shuffled so you can't coast on context.</p>
+
+    <div class="recall">
+        <div class="prompt">Your coordinator fires each encode with <code>run_deployment</code> and waits on it before creating the next. What did you just break? <span class="tag">L13</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The <strong>fleet parallelism</strong>. Create <em>every</em> run with <code>timeout=0</code> first, <em>then</em> gather them. Blocking as you create serialises the fan-out — the encodes run one at a time across the whole fleet.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">An encode shells out to ffmpeg with 4 threads. You reach for <code>ProcessPoolTaskRunner</code> to cap CPU. Why does it do nothing? <span class="tag">L11</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The heavy work and its threads live in a <strong>child process Prefect can't see</strong> — there's no Python compute to parallelise, so the task runner is the wrong lever. Cap it with a <strong>concurrency limit</strong> instead. <em>Count runs, not cores.</em></div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">You rewrite the sync coordinator as <code>async</code>. Do the encodes now finish faster? <span class="tag">L14</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>No.</strong> The encodes already ran in parallel — that's <code>timeout=0</code> + the GCL, in <em>both</em> versions. Async buys the documented (async-only) <code>wait_for_flow_run</code> API, <strong>concurrent dispatch</strong> (matters at 600 segments, invisible at 6), and deleting the poll loop — not wall-clock on small batches.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Inside a coordinator: <code>encode(seg)</code> vs <code>run_deployment("encode/encode", timeout=0)</code>. What's the execution difference? <span class="tag">L12</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The direct call runs <strong>inline on the coordinator's machine</strong>. <code>run_deployment</code> creates a <strong>separate flow run</strong> on the <code>encode</code> pool → picked up by any worker, any box. <code>.map</code> also stays on one machine — only a deployment escapes the host.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">A 16-core box, each encode pinned to 4 threads. What's the GCL <code>limit</code>, the <code>occupy</code>, and how many run at once? <span class="tag">L11</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><code>limit = 16</code> (the core budget), <code>occupy = 4</code> (each encode's thread cost) → <code>⌊16/4⌋ = <strong>4</strong></code> concurrent. The <em>same flow code</em> handles a 32-core box by changing only the limit number.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Six encodes all fire at once. The worker was started with <code>--limit 6</code>; the GCL is <code>limit 4 / occupy 2</code>. How many encode simultaneously? <span class="tag">L15</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>Two</strong> (<code>⌊4/2⌋</code>) — in three waves of two. The worker <code>--limit</code> lets all six be <em>picked up</em>, but the <strong>GCL, not the worker limit</strong>, caps actual concurrency. (The picked-up-but-parked processes are the real gotcha.)</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Why must <code>idempotency_key</code> come from <em>stable</em> inputs like <code>f"{archive}:{seg}"</code> — never a UUID? <span class="tag">L13</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">A re-created run with a <strong>seen</strong> key returns the existing run, so a crashed-and-rerun coordinator reuses finished encodes instead of doubling CPU. A UUID is new every time → every rerun looks new → it re-encodes everything. Random keys defeat the whole point.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Three scopes can cap concurrency. Which one is the <em>trap</em> for per-machine saturation, and why? <span class="tag">L11·L12</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The <strong>pool/queue limit</strong> (<code>set-concurrency-limit</code>) — it's <strong>fleet-global</strong>, shared by every worker, so it can't saturate one box. For per-machine you need a <strong>GCL named per worker</strong> (<code>encode:local-1</code>) + <code>occupy</code>. (The worker <code>--limit</code> is per-worker but blunt — it counts <em>whole flow runs</em>.)</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt"><code>wait_for_flow_run</code> hands back a <span class="pill running">Running</span> <code>FlowRun</code> for a run the worker already logged as done (~1 in 5). Why — and the fix? <span class="tag">L14</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">It's <strong>event-driven</strong> (<code>poll_interval</code> is ignored): it returns on the first final-state event, then re-reads the run — and that re-read can <strong>race the state commit</strong>. Fix: <strong>re-read each run's authoritative state</strong> (<code>read_flow_run</code>) before classifying completed vs failed. (Also: use <code>aresult</code>, not <code>state.result.aio</code>.)</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">Does <code>as_subflow=True</code> on <code>run_deployment</code> make the dispatched run execute on the caller's machine? <span class="tag">L12</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer"><strong>No</strong> — it's <strong>lineage/UI only</strong> (the parent–child link in the run graph). The run still executes on its pool, wherever a worker picks it up. Co-location is about <em>where the work runs</em>, not the lineage flag.</div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">An encode ran on another machine and returned an output path. Why might the coordinator get <code>None</code> back instead? <span class="tag">L13·L4</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">The deployment didn't <strong>persist its result to shared storage</strong> (MinIO/S3) — return values cross machines only via persisted storage. The run <em>state</em> always lives in the server DB, so checking <em>whether</em> it finished works regardless. <em>Persist the path, not the bytes.</em></div>
+    </div>
+
+    <div class="recall">
+        <div class="prompt">You write <code>with concurrency("encode:local-1", occupy=4):</code> and it errors that the limit doesn't exist. What's missing? <span class="tag">L11</span></div>
+        <button class="reveal">Reveal</button>
+        <div class="answer">Create the limit <em>first</em>: <code>prefect gcl create encode:local-1 --limit 16</code>. <code>concurrency()</code> does <strong>not</strong> auto-create a GCL — it expects one already there.</div>
+    </div>
+
+    <h2>Part 2 · Decide (which tool?)</h2>
+    <p>These mix the five lessons on purpose — the skill is picking the right lever, fast.</p>
+
+    <div class="quiz" id="q1">
+        <div class="q">
+            A 32-core box runs encodes each pinned to 8 ffmpeg threads. You want to
+            saturate it without oversubscribing. What do you set?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">A GCL with limit 32 and occupy 8 per encode</button>
+            <button class="opt" data-correct="false">A ProcessPoolTaskRunner with max_workers of eight</button>
+            <button class="opt" data-correct="false">A worker started with its --limit flag at eight</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q2">
+        <div class="q">
+            Light extract jobs keep waiting for hours behind heavy encodes sharing
+            one work pool. What fixes the starvation?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Raise the shared pool's concurrency limit much higher</button>
+            <button class="opt" data-correct="true">Split extract and encode into two separate pools</button>
+            <button class="opt" data-correct="false">Move the encode tasks onto a process pool runner</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q3">
+        <div class="q">
+            Your coordinator crashed halfway through a fan-out and you rerun it. It
+            must not re-encode the segments that already finished. What guarantees it?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">A retry policy with exponential backoff per encode</button>
+            <button class="opt" data-correct="true">A stable idempotency_key built from each input</button>
+            <button class="opt" data-correct="false">A longer wait_for_flow_run timeout on each run</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q4">
+        <div class="q">
+            You fan out 600 encodes and dispatch itself is slow — one create-call
+            after another before any waiting starts. What removes that cost?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="false">Lower each deployment timeout so creates return faster</button>
+            <button class="opt" data-correct="true">Await arun_deployment calls together with asyncio.gather</button>
+            <button class="opt" data-correct="false">Raise the encode pool's concurrency limit much higher</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <div class="quiz" id="q5">
+        <div class="q">
+            One segment's encode raises an exception. You want the other five results
+            and a coordinator that doesn't crash. What do you reach for?
+        </div>
+        <div class="opts">
+            <button class="opt" data-correct="true">state.result with raise_on_failure set to False</button>
+            <button class="opt" data-correct="false">A bigger retries count on the coordinator flow</button>
+            <button class="opt" data-correct="false">A try/except wrapping the whole gather phase</button>
+        </div>
+        <div class="fb"></div>
+    </div>
+
+    <h2>How did it go?</h2>
+    <p>
+        Any card you blanked on, or scenario you missed, points straight at the
+        lesson to revisit — that's the whole value of doing this cold. The hardest
+        ones here are the cross-machine subtleties (results vs states, the
+        <code>wait_for_flow_run</code> race, fleet-global vs per-worker limits): if
+        those felt shaky, they're worth a re-read before you build the next rung.
+        Space it out — come back and run these again in a few days.
+    </p>
+
+    <div class="source-box">
+        <span class="label">Revisit by tag</span>
+        <p style="margin: 0.4rem 0 0">
+            <a href="0011-count-runs-not-cores.html">L11 saturation</a> ·
+            <a href="0012-fan-out-the-fleet.html">L12 topology</a> ·
+            <a href="0013-gather-the-fan-out.html">L13 gather</a> ·
+            <a href="0014-the-async-coordinator.html">L14 async</a> ·
+            <a href="0015-run-the-fleet.html">L15 run it</a>
+        </p>
+        <p style="margin: 0.6rem 0 0">
+            Cheatsheets: <a href="../reference/concurrency-cheatsheet.html">concurrency</a> ·
+            <a href="../reference/topology-cheatsheet.html">topology</a> ·
+            <a href="../reference/glossary.html">glossary</a>
+        </p>
+    </div>
+
+    <div class="ask">
+        <strong>I'm your teacher — ask me anything.</strong> Want me to drill the
+        cards you missed harder, generate a fresh shuffled set, or turn any weak spot
+        back into a full lesson? Tell me which <span class="tag">L#</span> tags
+        tripped you up and we'll target them — then we can move on to the bounded
+        re-dispatch loop or the GPU pool.
+    </div>
+
+    <div class="lesson-nav">
+        <span><a href="0015-run-the-fleet.html">← L15 Run the fleet</a></span>
+        <span style="color: var(--ink-faint)">Redo this cold in a few days ⏳</span>
+    </div>
+</main>
+
+<script>
+    // Recall cards: reveal on click
+    document.querySelectorAll(".recall button.reveal").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".recall").classList.add("shown");
+        });
+    });
+
+    // Scenario quizzes (same widget as every other lesson)
+    document.querySelectorAll(".quiz").forEach(function (quiz) {
+        var fb = quiz.querySelector(".fb");
+        quiz.querySelectorAll("button.opt").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var correct = btn.dataset.correct === "true";
+                quiz.querySelectorAll("button.opt").forEach(function (b) {
+                    b.disabled = true;
+                });
+                btn.classList.add(correct ? "correct" : "wrong");
+                if (!correct) {
+                    var right = quiz.querySelector(
+                        'button.opt[data-correct="true"]',
+                    );
+                    if (right) right.classList.add("correct");
+                }
+                fb.textContent = correct
+                    ? "✓ Right."
+                    : "✗ Not quite — the highlighted answer is correct. Revisit that lesson.";
+                fb.className = "fb " + (correct ? "good" : "bad");
+            });
+        });
+    });
+</script>

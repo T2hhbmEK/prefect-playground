@@ -24,7 +24,7 @@ RECORDS = sorted(RECORDS_DIR.glob("*.md"))
 
 # Lessons exempt from the primary-source rule: interleaved review/recall lessons
 # that re-practice earlier material rather than introduce new content (see NOTES).
-NO_CITATION_OK = {"0010-review-and-retrieve"}
+NO_CITATION_OK = {"0010-review-and-retrieve", "0016-review-the-fleet"}
 
 # Wikilink targets that intentionally reference a concept rather than a repo file
 # (e.g. the learner's "challenge me from first principles" teaching preference,

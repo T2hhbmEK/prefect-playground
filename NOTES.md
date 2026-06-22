@@ -60,6 +60,7 @@ baseline) and `0008-mission-expanded-scale` (the 2026-06-21 scope change).
   ([[0017-async-native-reorg]]): the lessons swapped (record 0015 = run-the-fleet = now
   L15; record 0016 = async coordinator = now L14), but the records did not.
 - `0017-async-native-reorg` ↔ **—** (decision record, no lesson — the L14↔L15 swap)
+- `0018-review-the-fleet` ↔ **L16** (the second pure-review lesson, after L10)
 
 Don't renumber to "align" them: records cross-link by slug via wikilinks
 (`[[0008-mission-expanded-scale]]` alone is referenced by 0009, 0010, and 0012), so
@@ -130,10 +131,16 @@ See [[0017-async-native-reorg]]. Items renumbered to the post-swap order:
     re-read settle). Verified LIVE (async): happy path `6 ok` in 3 waves of 2 (GCL holds),
     partial failure `5 ok, 1 failed:[3]`, idempotent rerun = 0 new encodes. `.runboard`
     widget. ← done (lesson 0015). Record: [[0015-run-the-fleet]].
-16. (next) Candidates, in rough priority: a **cold review of L11–L15** — spacing is now
-    overdue (FIVE lessons of new material since the last review at L10; trigger is elapsed
-    time + volume, not lesson count); a **bounded re-dispatch loop** (retry only the failed
-    segments N times with a fresh `idempotency_key` per attempt — the natural next step now
-    that fan-out + gather + async are solid); or a **GPU pool** routed by machine class
-    (`work_queue_name`, untouched since L12). Standing: `max_workers`; (much later) the K8s
-    graduation; Dask/Ray.
+16. **Review the fleet** — cold interleaved spaced retrieval over L11–L15 (overdue: FIVE
+    lessons of new material since the last review at L10). No new material/asset: 12
+    shuffled `.recall` cards + 5 scenario quizzes, reusing the L10 review format; targets
+    the cross-machine gotchas most likely to have decayed (results-vs-states, the
+    `wait_for_flow_run` race, fleet-global vs per-worker limits). Added
+    `0016-review-the-fleet` to `NO_CITATION_OK`. ← done (lesson 0016). Record:
+    [[0018-review-the-fleet]].
+17. (next) Candidates, in rough priority: a **bounded re-dispatch loop** (retry only the
+    failed segments N times with a fresh `idempotency_key` per attempt — the natural next
+    step now that fan-out + gather + async are solid AND the review debt is cleared); or a
+    **GPU pool** routed by machine class (`work_queue_name`, untouched since L12). Standing:
+    `max_workers`; (much later) the K8s graduation; Dask/Ray. Also: re-run the L16 review
+    cold in a few days (spacing the spacing).
