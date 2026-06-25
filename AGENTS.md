@@ -59,16 +59,20 @@ under both `.agents/skills/` (agent-agnostic) and `.claude/skills/` (Claude).
 
 ## Environment & commands
 
-Python is managed with [uv](https://docs.astral.sh/uv/). `prefect` is pinned to a **dev
-build** (`prefect[aws,redis]==3.7.5.dev4`) — resolve it from `uv.lock` via uv, and don't
-assume released-version behavior (verify against the Prefect GitHub source if docs disagree).
+Python is managed with [uv](https://docs.astral.sh/uv/). `prefect` is pinned to
+`prefect[aws,redis]==3.7.5` — resolve it from `uv.lock` via uv. (Earlier lessons were
+verified on the `3.7.5.dev4` pre-release; the pin moved to the `3.7.5` stable release
+once it shipped — verified to run cleanly on macOS, so the older "stable is buggy on mac"
+rationale no longer applies. Some learning-records still cite `3.7.5.dev4` as the build
+they were verified against; that's a historical record, not the current pin.)
 
 - Install deps: `uv sync`
-- **Start the local stack:** `docker compose up -d --build` — runs the Prefect server
+- **Start the local stack:** `docker compose up -d` — runs the Prefect server
   (API/UI at `http://localhost:4200`), its Postgres DB, and a MinIO object store (console
-  `:9001`, creds `minioadmin`/`minioadmin`, bucket `prefect-artifacts`). The server is
-  built from `Dockerfile.server`, pinned to the same `3.7.5.dev4` build as the client so
-  API versions match. Stop with `docker compose down` (volumes persist; `-v` wipes them).
+  `:9001`, creds `minioadmin`/`minioadmin`, bucket `prefect-artifacts`). The server runs
+  the official `prefecthq/prefect:3.7.5-python3.13` image, pinned to the same `3.7.5` as
+  the client so API versions match (no custom Dockerfile — `asyncpg` is a core prefect
+  dep as of 3.7.5). Stop with `docker compose down` (volumes persist; `-v` wipes them).
   There is **no `prefect server start` by hand** — the host client talks to the Dockerized
   server on `:4200`.
 - Run an example flow: `uv run python 01_getting_started.py`.
@@ -89,7 +93,7 @@ No build step is configured.
   resolve, lessons/records are contiguously numbered, and every page parses with a `<title>`.
 - **`test_repo_config.py`** — pins the config facts AGENTS.md claims (ruff in `ruff.toml`
   not pyproject, no `[tool.prefect.*]` in pyproject, analytics off in compose, bun-only
-  lockfile, client/server share the `3.7.5.dev4` pin). These have rotted before.
+  lockfile, client/server share the `3.7.5` pin). These have rotted before.
 - **`test_scripts_smoke.py`** — every example script imports side-effect-free (real work
   stays behind `__main__`); each numbered script defines a flow.
 - **`test_flows.py`** — `task.fn` unit tests plus one end-to-end run via

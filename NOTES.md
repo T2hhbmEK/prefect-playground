@@ -15,14 +15,15 @@ Working notes on how to teach this user. Update as preferences surface.
   standalone example scripts (`01_getting_started.py`, …). Each is self-contained
   with its own `@flow` + `if __name__ == "__main__"`. Lessons can build on / add to
   these scripts.
-- Environment: uv-managed, `prefect==3.7.5.dev4` (a dev build — verify behavior
-  against the GitHub source if docs disagree). Run things with `uv run`.
+- Environment: uv-managed, `prefect==3.7.5` (stable release; was pinned to the
+  `3.7.5.dev4` pre-release until that version shipped — the upgrade was verified to
+  run cleanly on macOS). Run things with `uv run`.
 - Telemetry disabled via `PREFECT_SERVER_ANALYTICS_ENABLED=false` in `docker-compose.yml`
   (server-side env, set when the stack was Dockerized — not in `pyproject.toml`).
-- **Whole local stack is Dockerized** (`docker-compose.yml`, `docker compose up -d --build`):
-  Prefect server (API/UI :4200) + its Postgres DB + MinIO. The server is built from
-  `Dockerfile.server`, pinned to `prefect==3.7.5.dev4` (no published dev image), so
-  the server API version (`0.8.4`) matches the host client exactly. Flows run on the
+- **Whole local stack is Dockerized** (`docker-compose.yml`, `docker compose up -d`):
+  Prefect server (API/UI :4200) + its Postgres DB + MinIO. The server runs the official
+  `prefecthq/prefect:3.7.5-python3.13` image, pinned to match the client `prefect==3.7.5`,
+  so the server API version (`0.8.4`) matches the host client exactly. Flows run on the
   _host_ via `uv` and talk to the Dockerized server on :4200 (profile already sets
   `PREFECT_API_URL`). No more `prefect server start` by hand.
 - **MinIO** (S3-compatible object store): API :9000, console :9001, creds

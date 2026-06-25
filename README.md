@@ -23,7 +23,7 @@ The local stack — Prefect server + UI, its Postgres DB, and a MinIO object sto
 in Docker:
 
 ```bash
-docker compose up -d --build          # server/UI at http://localhost:4200
+docker compose up -d                  # server/UI at http://localhost:4200
 uv run python 01_getting_started.py   # run a flow against it
 docker compose down                   # stop (data persists in volumes)
 ```
@@ -51,7 +51,8 @@ See `AGENTS.md` for what each module covers.
 
 ## Notes
 
-- Prefect is pinned to a dev build (`3.7.5.dev4`); the server image (`Dockerfile.server`)
-  is built to match the client.
+- Prefect is pinned to `3.7.5` (the stable release; previously the `3.7.5.dev4`
+  pre-release). The server runs the official `prefecthq/prefect:3.7.5-python3.13` image,
+  pinned to match the client.
 - Server telemetry is disabled via `PREFECT_SERVER_ANALYTICS_ENABLED=false` in
   `docker-compose.yml`; client settings live in `prefect.toml`.

@@ -28,11 +28,11 @@ services:
       retries: 10
 
   # --- Prefect API + UI (server) ---------------------------------------------
-  # Built from Dockerfile.server so the version matches the pinned client.
   prefect-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.server
+    # Official image, pinned to the SAME version as the client (pyproject.toml) so
+    # the server API version matches. As of 3.7.5 `asyncpg` is a core prefect dep,
+    # so the stock image already has the Postgres driver — no custom build needed.
+    image: prefecthq/prefect:3.7.5-python3.13
     container_name: prefect-playground-server
     depends_on:
       postgres:

@@ -12,7 +12,7 @@ import tomllib
 
 from conftest import REPO_ROOT
 
-PREFECT_PIN = "3.7.5.dev4"
+PREFECT_PIN = "3.7.5"
 
 
 def _load_toml(name: str) -> dict:
@@ -65,7 +65,7 @@ def test_bun_is_the_only_js_lockfile():
         )
 
 
-# --- the dev-build pin matches between client and server ---------------------
+# --- the version pin matches between client and server ----------------------
 
 
 def test_client_and_server_pin_the_same_prefect_build():
@@ -73,7 +73,9 @@ def test_client_and_server_pin_the_same_prefect_build():
     assert any(f"=={PREFECT_PIN}" in d for d in deps), (
         f"client must pin prefect=={PREFECT_PIN}"
     )
-    dockerfile = (REPO_ROOT / "Dockerfile.server").read_text()
-    assert f"prefect=={PREFECT_PIN}" in dockerfile, (
-        f"server image must pin the same prefect=={PREFECT_PIN} as the client"
+    # The server runs the official image (no custom Dockerfile since 3.7.5, where
+    # asyncpg is a core prefect dep). Its tag must pin the same version as the client.
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    assert f"prefecthq/prefect:{PREFECT_PIN}-" in compose, (
+        f"server image must pin the same prefect {PREFECT_PIN} as the client"
     )
