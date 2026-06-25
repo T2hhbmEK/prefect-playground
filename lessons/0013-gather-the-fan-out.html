@@ -60,7 +60,7 @@ def _settle(fr, done):                          # final? stash it and drop from 
     if fr.state.is_final():
         done[fr.id] = fr
     return fr.state.is_final()</code></pre>
-    <p class="note" style="margin:0.6rem 0"><span class="label">Why poll, not <code>wait_for_flow_run</code>?</span> The obvious helper, <code>wait_for_flow_run</code>, is <strong>async-only</strong> in our <code>3.7.5.dev4</code> build — calling it from this <em>sync</em> flow returns a coroutine (<code>'coroutine' object has no attribute 'state'</code>). So a sync coordinator polls state with <code>get_client(sync_client=True)</code>. Make the flow <code>async</code> and you'd <code>await wait_for_flow_run(r.id)</code> instead — that's the next lesson, <a href="0014-the-async-coordinator.html">L14</a>.</p>
+    <p class="note" style="margin:0.6rem 0"><span class="label">Why poll, not <code>wait_for_flow_run</code>?</span> The obvious helper, <code>wait_for_flow_run</code>, is <strong>async-only</strong> in our <code>3.7.5</code> build — calling it from this <em>sync</em> flow returns a coroutine (<code>'coroutine' object has no attribute 'state'</code>). So a sync coordinator polls state with <code>get_client(sync_client=True)</code>. Make the flow <code>async</code> and you'd <code>await wait_for_flow_run(r.id)</code> instead — that's the next lesson, <a href="0014-the-async-coordinator.html">L14</a>.</p>
     <div class="why">
         <span class="label">Why not just drop <code>timeout=0</code>?</span>
         Letting <code>run_deployment</code> block (its default) waits on each encode

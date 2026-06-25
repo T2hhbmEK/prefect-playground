@@ -129,9 +129,9 @@ async def process_archive(archive: str):
   <div class="note">
     <span class="label">Things that bite</span>
     <ul style="margin:0.4rem 0 0">
-      <li><strong><code>wait_for_flow_run</code> is async-only</strong> (verified, <code>3.7.5.dev4</code>) → in a <em>sync</em> coordinator it returns a coroutine. Make the flow <code>async</code> and <code>await wait_for_flow_run</code> (L14); the sync fallback is the <code>get_client(sync_client=True).read_flow_run(id)</code> poll loop shown above.</li>
+      <li><strong><code>wait_for_flow_run</code> is async-only</strong> (verified, <code>3.7.5</code>) → in a <em>sync</em> coordinator it returns a coroutine. Make the flow <code>async</code> and <code>await wait_for_flow_run</code> (L14); the sync fallback is the <code>get_client(sync_client=True).read_flow_run(id)</code> poll loop shown above.</li>
       <li><strong><code>wait_for_flow_run</code> hands back a racing state</strong> (L14) → it's event-driven (<code>poll_interval</code> ignored): returns on the first final-state <em>event</em>, then re-reads, and that re-read can lag the commit — a finished run can come back <code>RUNNING</code> (seen ~1 run in 5), so it looks "failed". <strong>Re-read the run's state before classifying</strong>; one read settles it.</li>
-      <li><strong><code>fr.state.result.aio(...)</code></strong> → the bound-method <code>.aio</code> drops <code>self</code> in <code>3.7.5.dev4</code>. Use <code>await fr.state.aresult(...)</code>.</li>
+      <li><strong><code>fr.state.result.aio(...)</code></strong> → the bound-method <code>.aio</code> drops <code>self</code> in <code>3.7.5</code>. Use <code>await fr.state.aresult(...)</code>.</li>
       <li><strong>Using <code>.map</code> for fleet scale</strong> → it stays in one process on one machine. Use <code>run_deployment</code> per unit.</li>
       <li><strong>Expecting <code>as_subflow</code> to co-locate</strong> → it's lineage only; execution is on the pool.</li>
       <li><strong>Blocking the coordinator</strong> → forgetting <code>timeout=0</code> makes the parent wait on each encode serially. Fire all, gather later.</li>

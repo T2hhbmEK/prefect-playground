@@ -27,7 +27,7 @@
     <h2>0 · Why the coordinator is async</h2>
     <p>
         L13 introduced <code>wait_for_flow_run(r.id)</code> as the way to gather a
-        fan-out. The catch: in <code>3.7.5.dev4</code> it's a <strong>coroutine</strong>
+        fan-out. The catch: in <code>3.7.5</code> it's a <strong>coroutine</strong>
         — call it from a <em>sync</em> flow and you get
         <code>'coroutine' object has no attribute 'state'</code>. You can hand-roll a
         poll loop with the sync client (the L13 cheatsheet shows it), but the moment you
@@ -219,7 +219,7 @@ async with get_client() as client:
             deployments</a> (see the multi-run gather example) and Python's
             <a href="https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"><code>asyncio.gather</code></a>.
             Everything here — including the event-driven <code>wait_for_flow_run</code>
-            race — was run end-to-end against our <code>3.7.5.dev4</code> build.
+            race — was run end-to-end against our <code>3.7.5</code> build.
         </p>
     </div>
 

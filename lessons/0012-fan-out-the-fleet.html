@@ -78,7 +78,7 @@ def process_archive(archive: str):
     ]
     return [r.id for r in runs]             # one distributed flow run per segment</code></pre>
     <div class="note">
-        <span class="label">Verified behaviour (dev build 3.7.5.dev4)</span>
+        <span class="label">Verified behaviour (3.7.5)</span>
         <code>timeout=0</code> returns the moment each run is <em>created</em> (don't
         wait); the default blocks until it finishes. And <code>as_subflow=True</code>
         (the default) only <em>nests</em> each encode under the parent in the UI — it
@@ -170,7 +170,7 @@ def process_archive(archive: str):
             scheduling) and the
             <a href="https://docs.prefect.io/v3/api-ref/python/prefect-deployments-flow_runs">flow-runs
             API reference</a> (full signature + <code>as_subflow</code>). Verified for our
-            <code>3.7.5.dev4</code> build.
+            <code>3.7.5</code> build.
         </p>
     </div>
 

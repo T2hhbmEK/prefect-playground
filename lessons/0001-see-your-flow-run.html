@@ -52,8 +52,9 @@
     </p>
 
     <div class="note">
-        <span class="label">Note</span> The server is pinned (in
-        <code>Dockerfile.server</code>) to the same Prefect version as your
+        <span class="label">Note</span> The server runs the official
+        <code>prefecthq/prefect</code> image pinned (in
+        <code>docker-compose.yml</code>) to the same Prefect version as your
         client, so the API versions match exactly. It stores every run in
         Postgres — that's what the UI reads. Stop the stack with
         <code>docker compose down</code> (your data survives in volumes);
