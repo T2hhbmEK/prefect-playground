@@ -9,7 +9,7 @@ heterogeneous VM fleet.
     process-archive/extract  → the `extract` pool (light I/O; fans out + gathers)
 
 The coordinator is an `async def` flow (L14): `wait_for_flow_run` is async-only in
-our `3.7.5.dev4` build, so a coordinator that gathers a fan-out the documented way
+our `3.7.5` build, so a coordinator that gathers a fan-out the documented way
 *must* be async. `asyncio.gather` fans both phases — the creates and the waits —
 out concurrently.
 
@@ -134,7 +134,7 @@ async def process_archive(archive: str = "demo.tar", n_segments: int = 6) -> dic
     for fr in finished:
         if fr.state.is_completed():
             # Async cross-process result fetch: `aresult`, NOT `result.aio` — the
-            # bound-method `.aio` form drops `self` in 3.7.5.dev4. Works because
+            # bound-method `.aio` form drops `self` on our 3.7.5 build. Works because
             # the encode persists its result (L4/L13).
             done.append(await fr.state.aresult(raise_on_failure=False))
         else:

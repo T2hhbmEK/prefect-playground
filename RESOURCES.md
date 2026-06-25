@@ -42,7 +42,7 @@
   `concurrency(name, occupy=N)`, to cap per-machine CPU saturation without
   oversubscribing. Create the limit first (`prefect gcl create` — not auto-created).
   Use for: lesson 0011 + the concurrency cheatsheet. (URL + behavior verified against
-  the docs for `3.7.5.dev4`.)
+  the docs for `3.7.5`.)
 - [Prefect 3 — Run deployments (how-to)](https://docs.prefect.io/v3/how-to-guides/deployments/run-deployments)
   `run_deployment` parameters, `timeout` (0 = fire-and-forget), and `idempotency_key`
   for safe coordinator retries. Use for: fan-out (lesson 0012) + gather (lesson 0013).
@@ -51,12 +51,13 @@
   wait_for_flow_run(id)` (poll a run to a final state) and `State.result(
   raise_on_failure=False)` to gather a distributed batch and survive partial failure.
   Use for: collecting encode results across the fleet (lesson 0013). (Signatures
-  verified against the installed `3.7.5.dev4` via `inspect`.)
+  verified against the installed `3.7.5` via `inspect`.)
 - [Prefect API & CLI reference](https://docs.prefect.io/v3/api-ref/cli)
   Use for: `prefect server start`, `prefect flow-runs ls`, deployment commands.
 - [Prefect GitHub repo](https://github.com/PrefectHQ/prefect)
-  Source of truth for behavior on dev builds (we're on `3.7.5.dev4`). Use for:
-  checking what a feature actually does when docs lag the build.
+  Source of truth for actual behavior (we're on `3.7.5`; earlier lessons were verified
+  against the `3.7.5.dev4` pre-release). Use for: checking what a feature actually does
+  when docs lag the release.
 
 ## Wisdom (Communities)
 
@@ -64,7 +65,7 @@
   High-signal, maintainers active. Use for: "is this the idiomatic way?" questions
   and behavior that the docs don't cover.
 - [Prefect GitHub Discussions / Issues](https://github.com/PrefectHQ/prefect/discussions)
-  Use for: confirming bugs vs. misuse, especially on dev builds.
+  Use for: confirming bugs vs. misuse.
 
 ## Gaps
 

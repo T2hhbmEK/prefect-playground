@@ -53,7 +53,7 @@ Expanded arc (in progress):
 - **Make the coordinator async-native**: one `async def` flow — `arun_deployment` to
   fire each encode and `await wait_for_flow_run` + `asyncio.gather` to dispatch and
   gather concurrently — replacing the hand-rolled sync poll loop (`wait_for_flow_run`
-  is async-only on `3.7.5.dev4`). ✓ L14.
+  is async-only on `3.7.5`). ✓ L14.
 - **Run the whole thing**: stand the fan-out fleet up on the Docker stack and execute
   the async-native `10_fleet.py` — two pools, two workers, per-machine GCL, fan-out +
   gather coordinator. Watched the GCL gate 6 encodes to 2-at-a-time, survive a partial
@@ -63,7 +63,7 @@ Expanded arc (in progress):
 
 - No longer brand new: comfortable through deployments, scheduling, caching,
   object storage, diagnosis, and alerting (L1–L7).
-- Local-first (uv-managed, `prefect==3.7.5.dev4`, Dockerized server + MinIO). Prefer
+- Local-first (uv-managed, `prefect==3.7.5`, Dockerized server + MinIO). Prefer
   work-pool / worker / executor types that run **locally** (Process pool, local
   workers, local Dask/Ray) before any remote infra.
 - Short lessons; learning spread over multiple sessions.
